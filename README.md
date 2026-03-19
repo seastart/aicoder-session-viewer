@@ -21,12 +21,14 @@ AI coding assistants store their session data in different formats (JSONL, JSON,
 
 ## Data Sources
 
-| Tool | Path | Format |
-|------|------|--------|
-| Claude Code | `~/.claude/projects/{path}/{uuid}.jsonl` | JSONL (index in `~/.claude/sessions/*.json`) |
-| Codex | `~/.codex/sessions/{Y}/{M}/{D}/rollout-*.jsonl` | JSONL |
-| Gemini CLI | `~/.gemini/tmp/{project}/chats/session-*.json` | JSON |
-| OpenCode | `~/.local/share/opencode/opencode.db` | SQLite |
+| Tool | macOS / Linux | Windows | Format |
+|------|--------------|---------|--------|
+| Claude Code | `~/.claude/projects/{path}/{uuid}.jsonl` | `%USERPROFILE%\.claude\projects\...` | JSONL (index in `~/.claude/sessions/*.json`) |
+| Codex | `~/.codex/sessions/{Y}/{M}/{D}/rollout-*.jsonl` | `%USERPROFILE%\.codex\sessions\...` | JSONL |
+| Gemini CLI | `~/.gemini/tmp/{project}/chats/session-*.json` | `%USERPROFILE%\.gemini\tmp\...` | JSON |
+| OpenCode | `~/.local/share/opencode/opencode.db` | `%USERPROFILE%\.local\share\opencode\opencode.db` | SQLite |
+
+> All four tools use the user home directory (`~` / `%USERPROFILE%`) as root, with identical directory structures across platforms.
 
 ## Tech Stack
 

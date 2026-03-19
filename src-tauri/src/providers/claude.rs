@@ -33,10 +33,12 @@ struct JsonlFileInfo {
 impl ClaudeCodeProvider {
     pub fn new() -> AppResult<Self> {
         let home =
-            dirs::home_dir().ok_or_else(|| AppError::Provider("无法获取 home 目录".into()))?;
+            dirs::home_dir().ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
         let base_dir = home.join(".claude");
         if !base_dir.exists() {
-            return Err(AppError::Provider("~/.claude 目录不存在".into()));
+            return Err(AppError::Provider(format!(
+                "directory not found: {}", base_dir.display()
+            )));
         }
         Ok(Self { base_dir })
     }
@@ -91,14 +93,27 @@ impl ClaudeCodeProvider {
     }
 
     /// 将项目目录名还原为实际路径
-    /// 例如 "-Users-shushenghong-Documents-workspace-srtc" → "/Users/shushenghong/Documents/workspace/srtc"
+    ///
+    /// macOS/Linux: "-Users-shushenghong-Documents-project" → "/Users/shushenghong/Documents/project"
+    /// Windows:     "-C-Users-shushenghong-project"         → "C:/Users/shushenghong/project"
     fn dir_name_to_path(dir_name: &str) -> String {
-        if dir_name.starts_with('-') {
-            // 将开头的 - 替换为 /，后续的 - 也替换为 /
-            format!("/{}", &dir_name[1..]).replace('-', "/")
-        } else {
-            dir_name.replace('-', "/")
+        if !dir_name.starts_with('-') {
+            return dir_name.replace('-', "/");
         }
+
+        let raw = format!("/{}", &dir_name[1..]).replace('-', "/");
+
+        // Windows 盘符检测："/C/Users/..." → "C:/Users/..."
+        // 模式为 /X/ 其中 X 是单个字母
+        if raw.len() >= 3 {
+            let bytes = raw.as_bytes();
+            if bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b'/' {
+                let drive = bytes[1] as char;
+                return format!("{}:{}", drive, &raw[2..]);
+            }
+        }
+
+        raw
     }
 
     /// 从 JSONL 第一条消息中提取项目路径（cwd 字段）

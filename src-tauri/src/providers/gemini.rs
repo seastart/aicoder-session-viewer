@@ -27,10 +27,12 @@ pub struct GeminiProvider {
 impl GeminiProvider {
     pub fn new() -> AppResult<Self> {
         let home =
-            dirs::home_dir().ok_or_else(|| AppError::Provider("无法获取 home 目录".into()))?;
+            dirs::home_dir().ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
         let base_dir = home.join(".gemini");
         if !base_dir.exists() {
-            return Err(AppError::Provider("~/.gemini 目录不存在".into()));
+            return Err(AppError::Provider(format!(
+                "directory not found: {}", base_dir.display()
+            )));
         }
         Ok(Self { base_dir })
     }

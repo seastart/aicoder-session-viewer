@@ -22,10 +22,12 @@ pub struct OpenCodeProvider {
 impl OpenCodeProvider {
     pub fn new() -> AppResult<Self> {
         let home =
-            dirs::home_dir().ok_or_else(|| AppError::Provider("无法获取 home 目录".into()))?;
+            dirs::home_dir().ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
         let db_path = home.join(".local/share/opencode/opencode.db");
         if !db_path.exists() {
-            return Err(AppError::Provider("OpenCode 数据库不存在".into()));
+            return Err(AppError::Provider(format!(
+                "database not found: {}", db_path.display()
+            )));
         }
         Ok(Self { db_path })
     }

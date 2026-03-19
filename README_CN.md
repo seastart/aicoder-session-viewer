@@ -21,12 +21,14 @@ AI 编码助手各自使用不同的格式（JSONL / JSON / SQLite）将会话�
 
 ## 数据源
 
-| 工具 | 路径 | 格式 |
-|------|------|------|
-| Claude Code | `~/.claude/projects/{path}/{uuid}.jsonl` | JSONL（索引在 `~/.claude/sessions/*.json`）|
-| Codex | `~/.codex/sessions/{Y}/{M}/{D}/rollout-*.jsonl` | JSONL |
-| Gemini CLI | `~/.gemini/tmp/{project}/chats/session-*.json` | JSON |
-| OpenCode | `~/.local/share/opencode/opencode.db` | SQLite |
+| 工具 | macOS / Linux | Windows | 格式 |
+|------|--------------|---------|------|
+| Claude Code | `~/.claude/projects/{path}/{uuid}.jsonl` | `%USERPROFILE%\.claude\projects\...` | JSONL（索引在 `~/.claude/sessions/*.json`）|
+| Codex | `~/.codex/sessions/{Y}/{M}/{D}/rollout-*.jsonl` | `%USERPROFILE%\.codex\sessions\...` | JSONL |
+| Gemini CLI | `~/.gemini/tmp/{project}/chats/session-*.json` | `%USERPROFILE%\.gemini\tmp\...` | JSON |
+| OpenCode | `~/.local/share/opencode/opencode.db` | `%USERPROFILE%\.local\share\opencode\opencode.db` | SQLite |
+
+> 四款工具在所有平台上均以用户主目录（`~` / `%USERPROFILE%`）为根目录，目录结构跨平台一致。
 
 ## 技术栈
 
