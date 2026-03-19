@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::error::AppResult;
-use crate::models::{Session, SessionSummary, ToolKind};
+use crate::models::{Message, Session, SessionSummary, ToolKind};
 use crate::providers::ProviderRegistry;
 
 /// 列出所有工具的 session
@@ -31,6 +31,16 @@ pub fn get_session(
     let tool_kind = ToolKind::from_str_loose(&tool)
         .ok_or_else(|| crate::error::AppError::Provider(format!("未知工具类型: {}", tool)))?;
     registry.get_session(tool_kind, &session_id)
+}
+
+/// 获取 Claude Code subagent 的对话消息（懒加载）
+#[tauri::command]
+pub fn get_subagent_messages(
+    session_id: String,
+    agent_id: String,
+    registry: State<ProviderRegistry>,
+) -> AppResult<Vec<Message>> {
+    registry.get_subagent_messages(&session_id, &agent_id)
 }
 
 /// 搜索 session

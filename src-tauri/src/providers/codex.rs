@@ -11,17 +11,21 @@ use crate::providers::SessionProvider;
 /// Codex 数据源
 ///
 /// 存储结构：
-/// - 全局历史: ~/.codex/history.jsonl
 /// - Session 文件: ~/.codex/sessions/{Y}/{M}/{D}/rollout-*.jsonl
 ///
-/// JSONL 格式中每行可能是 session_meta 或 response_item
+/// JSONL 每行顶层结构: { timestamp, type, payload }
+/// - type = "session_meta"  → payload 含 id, cwd 等元信息
+/// - type = "event_msg"     → payload.type 区分 user_message / task_started 等
+/// - type = "response_item" → payload.type 区分 message / function_call / function_call_output
+/// - type = "turn_context"  → 包含 model、cwd 等上下文，可提取 project_path
 pub struct CodexProvider {
     base_dir: PathBuf,
 }
 
 impl CodexProvider {
     pub fn new() -> AppResult<Self> {
-        let home = dirs::home_dir().ok_or_else(|| AppError::Provider("无法获取 home 目录".into()))?;
+        let home =
+            dirs::home_dir().ok_or_else(|| AppError::Provider("无法获取 home 目录".into()))?;
         let base_dir = home.join(".codex");
         if !base_dir.exists() {
             return Err(AppError::Provider("~/.codex 目录不存在".into()));
@@ -65,7 +69,6 @@ impl CodexProvider {
             .filter_map(|c| c.as_os_str().to_str())
             .collect();
 
-        // 找到 "sessions" 之后的 Y/M/D
         let sessions_idx = components.iter().position(|&c| c == "sessions")?;
         if components.len() < sessions_idx + 4 {
             return None;
@@ -80,11 +83,77 @@ impl CodexProvider {
             .map(|ndt| ndt.and_utc())
     }
 
-    /// 解析 Codex JSONL 文件
-    fn parse_session_file(&self, path: &PathBuf) -> AppResult<(Vec<Message>, Option<String>)> {
+    /// 快速扫描 JSONL 提取摘要信息（标题、消息数、项目路径）
+    fn scan_summary(content: &str) -> (Option<String>, usize, Option<String>) {
+        let mut title: Option<String> = None;
+        let mut project_path: Option<String> = None;
+        let mut msg_count = 0;
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let entry: serde_json::Value = match serde_json::from_str(line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let entry_type = entry.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            let payload = match entry.get("payload") {
+                Some(p) => p,
+                None => continue,
+            };
+
+            match entry_type {
+                "session_meta" => {
+                    // 从 session_meta 提取 cwd 作为 project_path
+                    if project_path.is_none() {
+                        project_path = payload
+                            .get("cwd")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                    }
+                }
+                "event_msg" => {
+                    let payload_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    if payload_type == "user_message" {
+                        msg_count += 1;
+                        // 用第一条用户消息作为标题
+                        if title.is_none() {
+                            if let Some(msg) = payload.get("message").and_then(|m| m.as_str()) {
+                                // 截取前 80 个字符，避免标题过长
+                                let truncated = truncate_title(msg, 80);
+                                title = Some(truncated);
+                            }
+                        }
+                    }
+                }
+                "response_item" => {
+                    let payload_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    let role = payload.get("role").and_then(|r| r.as_str()).unwrap_or("");
+                    // 统计助手消息和工具调用
+                    if role == "assistant" || payload_type == "function_call" || payload_type == "function_call_output" {
+                        msg_count += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        (title, msg_count, project_path)
+    }
+
+    /// 解析 Codex JSONL 文件，返回消息列表、标题、项目路径
+    fn parse_session_file(
+        &self,
+        path: &PathBuf,
+    ) -> AppResult<(Vec<Message>, Option<String>, Option<String>)> {
         let content = fs::read_to_string(path)?;
         let mut messages = Vec::new();
-        let mut title = None;
+        let mut title: Option<String> = None;
+        let mut project_path: Option<String> = None;
         let mut msg_index = 0;
 
         for line in content.lines() {
@@ -99,208 +168,219 @@ impl CodexProvider {
             };
 
             let entry_type = entry.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            let timestamp = Self::parse_timestamp(&entry);
+
+            let payload = match entry.get("payload") {
+                Some(p) => p,
+                None => continue,
+            };
 
             match entry_type {
-                // session 元数据
-                "session_meta" | "session.meta" => {
-                    if let Some(t) = entry
-                        .get("title")
-                        .or_else(|| entry.get("instruction"))
-                        .and_then(|t| t.as_str())
-                    {
-                        title = Some(t.to_string());
+                "session_meta" => {
+                    if project_path.is_none() {
+                        project_path = payload
+                            .get("cwd")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
                     }
                 }
-                // 用户消息
-                "user_message" | "message.user" => {
-                    let text = entry
-                        .get("content")
-                        .or_else(|| entry.get("text"))
-                        .and_then(|c| c.as_str())
-                        .unwrap_or("")
-                        .to_string();
 
-                    if !text.is_empty() {
-                        messages.push(Message {
-                            id: format!("codex-{}", msg_index),
-                            role: Role::User,
-                            content: vec![ContentBlock::Text { text }],
-                            timestamp: Self::parse_timestamp(&entry),
-                            model: None,
-                            usage: None,
-                        });
-                        msg_index += 1;
-                    }
-                }
-                // 助手响应
-                "response_item" | "message.assistant" | "response.completed" => {
-                    if let Some(msg) = self.parse_response_item(&entry, msg_index) {
-                        messages.push(msg);
-                        msg_index += 1;
-                    }
-                }
-                // function call 相关
-                "function_call" | "tool_call" => {
-                    let tool_name = entry
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-                    let input = entry
-                        .get("arguments")
-                        .or_else(|| entry.get("input"))
-                        .cloned()
-                        .unwrap_or(serde_json::Value::Null);
+                "event_msg" => {
+                    let payload_type =
+                        payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
-                    messages.push(Message {
-                        id: format!("codex-{}", msg_index),
-                        role: Role::Assistant,
-                        content: vec![ContentBlock::ToolUse {
-                            tool_name,
-                            tool_id: entry
-                                .get("call_id")
-                                .and_then(|i| i.as_str())
-                                .map(|s| s.to_string()),
-                            input,
-                        }],
-                        timestamp: Self::parse_timestamp(&entry),
-                        model: None,
-                        usage: None,
-                    });
-                    msg_index += 1;
+                    if payload_type == "user_message" {
+                        let text = payload
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        // 用第一条用户消息作为标题
+                        if title.is_none() && !text.is_empty() {
+                            title = Some(truncate_title(&text, 80));
+                        }
+
+                        if !text.is_empty() {
+                            messages.push(Message {
+                                id: format!("codex-{}", msg_index),
+                                role: Role::User,
+                                content: vec![ContentBlock::Text { text }],
+                                timestamp,
+                                model: None,
+                                usage: None,
+                            });
+                            msg_index += 1;
+                        }
+                    }
+                    // task_started / turn_aborted / token_count 等事件暂不展示
                 }
-                "function_call_output" | "tool_result" => {
-                    let output = entry
-                        .get("output")
-                        .or_else(|| entry.get("content"))
-                        .map(|o| {
-                            if o.is_string() {
-                                o.as_str().unwrap_or("").to_string()
-                            } else {
-                                serde_json::to_string_pretty(o).unwrap_or_default()
+
+                "response_item" => {
+                    let payload_type =
+                        payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+                    match payload_type {
+                        // 普通消息（assistant / developer / user 上下文注入）
+                        "message" => {
+                            let role_str =
+                                payload.get("role").and_then(|r| r.as_str()).unwrap_or("");
+
+                            // 只展示 assistant 消息，developer/user 上下文注入跳过
+                            if role_str == "assistant" {
+                                let blocks = Self::parse_content_blocks(payload);
+                                if !blocks.is_empty() {
+                                    messages.push(Message {
+                                        id: format!("codex-{}", msg_index),
+                                        role: Role::Assistant,
+                                        content: blocks,
+                                        timestamp,
+                                        model: None,
+                                        usage: None,
+                                    });
+                                    msg_index += 1;
+                                }
                             }
-                        })
-                        .unwrap_or_default();
+                        }
 
-                    messages.push(Message {
-                        id: format!("codex-{}", msg_index),
-                        role: Role::Tool,
-                        content: vec![ContentBlock::ToolResult {
-                            tool_id: entry
+                        // 工具调用
+                        "function_call" => {
+                            let tool_name = payload
+                                .get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+
+                            // arguments 是 JSON 字符串，解析为 Value
+                            let input = payload
+                                .get("arguments")
+                                .and_then(|a| {
+                                    if let Some(s) = a.as_str() {
+                                        serde_json::from_str(s).ok()
+                                    } else {
+                                        Some(a.clone())
+                                    }
+                                })
+                                .unwrap_or(serde_json::Value::Null);
+
+                            let tool_id = payload
                                 .get("call_id")
                                 .and_then(|i| i.as_str())
-                                .map(|s| s.to_string()),
-                            content: output,
-                            is_error: false,
-                        }],
-                        timestamp: Self::parse_timestamp(&entry),
-                        model: None,
-                        usage: None,
-                    });
-                    msg_index += 1;
-                }
-                _ => {
-                    // 其他类型尝试提取 content
-                    if let Some(text) = entry.get("content").and_then(|c| c.as_str()) {
-                        let role = entry
-                            .get("role")
-                            .and_then(|r| r.as_str())
-                            .map(|r| match r {
-                                "user" => Role::User,
-                                "assistant" => Role::Assistant,
-                                "system" => Role::System,
-                                _ => Role::Assistant,
-                            })
-                            .unwrap_or(Role::Assistant);
+                                .map(|s| s.to_string());
 
-                        messages.push(Message {
-                            id: format!("codex-{}", msg_index),
-                            role,
-                            content: vec![ContentBlock::Text {
-                                text: text.to_string(),
-                            }],
-                            timestamp: Self::parse_timestamp(&entry),
-                            model: None,
-                            usage: None,
-                        });
-                        msg_index += 1;
+                            messages.push(Message {
+                                id: format!("codex-{}", msg_index),
+                                role: Role::Assistant,
+                                content: vec![ContentBlock::ToolUse {
+                                    tool_name,
+                                    tool_id,
+                                    input,
+                                    agent_id: None,
+                                }],
+                                timestamp,
+                                model: None,
+                                usage: None,
+                            });
+                            msg_index += 1;
+                        }
+
+                        // 工具调用结果
+                        "function_call_output" => {
+                            let output = payload
+                                .get("output")
+                                .map(|o| {
+                                    if o.is_string() {
+                                        o.as_str().unwrap_or("").to_string()
+                                    } else {
+                                        serde_json::to_string_pretty(o).unwrap_or_default()
+                                    }
+                                })
+                                .unwrap_or_default();
+
+                            let tool_id = payload
+                                .get("call_id")
+                                .and_then(|i| i.as_str())
+                                .map(|s| s.to_string());
+
+                            messages.push(Message {
+                                id: format!("codex-{}", msg_index),
+                                role: Role::Tool,
+                                content: vec![ContentBlock::ToolResult {
+                                    tool_id,
+                                    content: output,
+                                    is_error: false,
+                                }],
+                                timestamp,
+                                model: None,
+                                usage: None,
+                            });
+                            msg_index += 1;
+                        }
+
+                        _ => {}
                     }
                 }
+
+                // turn_context 可提取 model 信息，暂不处理
+                _ => {}
             }
         }
 
-        Ok((messages, title))
+        Ok((messages, title, project_path))
     }
 
-    /// 解析 response_item 为 Message
-    fn parse_response_item(
-        &self,
-        entry: &serde_json::Value,
-        index: usize,
-    ) -> Option<Message> {
-        let mut content_blocks = Vec::new();
+    /// 从 payload.content 数组中提取 ContentBlock 列表
+    fn parse_content_blocks(payload: &serde_json::Value) -> Vec<ContentBlock> {
+        let mut blocks = Vec::new();
 
-        // 尝试从 content 数组提取
-        if let Some(content_arr) = entry.get("content").and_then(|c| c.as_array()) {
+        if let Some(content_arr) = payload.get("content").and_then(|c| c.as_array()) {
             for block in content_arr {
                 let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
                 match block_type {
-                    "text" | "output_text" => {
+                    "output_text" | "text" => {
                         if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
-                            content_blocks.push(ContentBlock::Text {
-                                text: text.to_string(),
-                            });
+                            if !text.is_empty() {
+                                blocks.push(ContentBlock::Text {
+                                    text: text.to_string(),
+                                });
+                            }
                         }
                     }
                     _ => {}
                 }
             }
-        } else if let Some(text) = entry.get("text").and_then(|t| t.as_str()) {
-            content_blocks.push(ContentBlock::Text {
-                text: text.to_string(),
-            });
-        } else if let Some(text) = entry.get("content").and_then(|c| c.as_str()) {
-            content_blocks.push(ContentBlock::Text {
-                text: text.to_string(),
-            });
         }
 
-        if content_blocks.is_empty() {
-            return None;
-        }
-
-        Some(Message {
-            id: format!("codex-{}", index),
-            role: Role::Assistant,
-            content: content_blocks,
-            timestamp: Self::parse_timestamp(entry),
-            model: entry
-                .get("model")
-                .and_then(|m| m.as_str())
-                .map(|s| s.to_string()),
-            usage: None,
-        })
+        blocks
     }
 
-    /// 解析时间戳
+    /// 解析顶层时间戳（顶层 timestamp 字段，RFC3339 格式）
     fn parse_timestamp(entry: &serde_json::Value) -> Option<DateTime<Utc>> {
-        entry
-            .get("timestamp")
-            .or_else(|| entry.get("created_at"))
-            .and_then(|t| {
-                if let Some(s) = t.as_str() {
-                    DateTime::parse_from_rfc3339(s)
-                        .ok()
-                        .map(|dt| dt.with_timezone(&Utc))
-                } else if let Some(n) = t.as_f64() {
-                    // Unix timestamp（秒）
-                    DateTime::from_timestamp(n as i64, 0)
-                } else if let Some(n) = t.as_i64() {
-                    DateTime::from_timestamp(n, 0)
-                } else {
-                    None
-                }
-            })
+        entry.get("timestamp").and_then(|t| {
+            if let Some(s) = t.as_str() {
+                DateTime::parse_from_rfc3339(s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&Utc))
+            } else if let Some(n) = t.as_f64() {
+                DateTime::from_timestamp(n as i64, 0)
+            } else if let Some(n) = t.as_i64() {
+                DateTime::from_timestamp(n, 0)
+            } else {
+                None
+            }
+        })
+    }
+}
+
+/// 截取标题，按字符边界截断，避免中间截断多字节字符
+fn truncate_title(s: &str, max_chars: usize) -> String {
+    // 去除换行，只取第一行
+    let first_line = s.lines().next().unwrap_or(s).trim();
+    if first_line.chars().count() <= max_chars {
+        first_line.to_string()
+    } else {
+        let truncated: String = first_line.chars().take(max_chars).collect();
+        format!("{}…", truncated)
     }
 }
 
@@ -317,32 +397,11 @@ impl SessionProvider for CodexProvider {
             let id = Self::session_id_from_path(path);
             let date = Self::date_from_path(path);
 
-            // 快速扫描获取 session 元信息
-            let (msg_count, title) = match fs::read_to_string(path) {
-                Ok(content) => {
-                    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
-                    let count = lines.len();
-                    let title = lines.iter().find_map(|line| {
-                        serde_json::from_str::<serde_json::Value>(line)
-                            .ok()
-                            .and_then(|v| {
-                                let t = v.get("type")?.as_str()?;
-                                if t == "session_meta" || t == "session.meta" {
-                                    v.get("title")
-                                        .or_else(|| v.get("instruction"))
-                                        .and_then(|t| t.as_str())
-                                        .map(|s| s.to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                    });
-                    (count, title)
-                }
-                Err(_) => (0, None),
+            let (title, msg_count, project_path) = match fs::read_to_string(path) {
+                Ok(content) => Self::scan_summary(&content),
+                Err(_) => (None, 0, None),
             };
 
-            // 如果没有从路径获取日期，用文件修改时间
             let started_at = date.or_else(|| {
                 fs::metadata(path)
                     .ok()
@@ -354,7 +413,7 @@ impl SessionProvider for CodexProvider {
                 id,
                 tool: ToolKind::Codex,
                 title: title.unwrap_or_else(|| "Codex Session".to_string()),
-                project_path: None,
+                project_path,
                 started_at,
                 message_count: msg_count,
             });
@@ -371,7 +430,7 @@ impl SessionProvider for CodexProvider {
             .find(|p| Self::session_id_from_path(p) == session_id)
             .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
 
-        let (messages, title) = self.parse_session_file(path)?;
+        let (messages, title, project_path) = self.parse_session_file(path)?;
         let started_at = Self::date_from_path(path).or_else(|| {
             fs::metadata(path)
                 .ok()
@@ -383,7 +442,7 @@ impl SessionProvider for CodexProvider {
             id: session_id.to_string(),
             tool: ToolKind::Codex,
             title: title.unwrap_or_else(|| "Codex Session".to_string()),
-            project_path: None,
+            project_path,
             started_at,
             message_count: messages.len(),
         };

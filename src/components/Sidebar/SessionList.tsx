@@ -65,7 +65,7 @@ export function SessionList() {
             </div>
 
             {/* 标题 */}
-            <div className="truncate text-sm text-text-primary">
+            <div className="truncate text-sm text-text-primary" title={session.title}>
               {session.title}
             </div>
 

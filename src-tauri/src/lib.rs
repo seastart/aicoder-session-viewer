@@ -16,6 +16,7 @@ pub fn run() {
             commands::list_all_sessions,
             commands::list_sessions,
             commands::get_session,
+            commands::get_subagent_messages,
             commands::search_sessions,
         ])
         .run(tauri::generate_context!())

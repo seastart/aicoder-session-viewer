@@ -31,7 +31,7 @@ export interface Message {
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "code"; language: string | null; code: string }
-  | { type: "tool_use"; tool_name: string; tool_id: string | null; input: unknown }
+  | { type: "tool_use"; tool_name: string; tool_id: string | null; input: unknown; agent_id?: string | null }
   | { type: "tool_result"; tool_id: string | null; content: string; is_error: boolean }
   | { type: "thinking"; text: string }
   | { type: "image"; source: string; media_type: string | null };

@@ -79,7 +79,7 @@ export function ChatView() {
         ) : (
           <div className="divide-y divide-border/50">
             {messages.map((msg, i) => (
-              <MessageBubble key={msg.id || i} message={msg} />
+              <MessageBubble key={msg.id || i} message={msg} sessionId={summary.id} />
             ))}
           </div>
         )}

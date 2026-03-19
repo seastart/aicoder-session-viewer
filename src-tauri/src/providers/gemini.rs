@@ -12,13 +12,22 @@ use crate::providers::SessionProvider;
 ///
 /// 存储结构：~/.gemini/tmp/{project}/chats/session-*.json
 /// 每个 JSON 文件包含一个完整 session
+///
+/// 消息格式（Gemini CLI 自有格式，非 Google AI API 格式）：
+/// - `type`: "user" | "gemini" | "info" | "error"
+/// - `content`: user 消息为 [{text: "..."}] 数组，gemini 消息为字符串
+/// - `toolCalls`: 工具调用数组，每项含 id/name/args/result
+/// - `thoughts`: 思考过程数组，每项含 subject/description
+/// - `tokens`: {input, output, cached, thoughts, tool, total}
+/// - `timestamp`: ISO 8601 时间戳
 pub struct GeminiProvider {
     base_dir: PathBuf,
 }
 
 impl GeminiProvider {
     pub fn new() -> AppResult<Self> {
-        let home = dirs::home_dir().ok_or_else(|| AppError::Provider("无法获取 home 目录".into()))?;
+        let home =
+            dirs::home_dir().ok_or_else(|| AppError::Provider("无法获取 home 目录".into()))?;
         let base_dir = home.join(".gemini");
         if !base_dir.exists() {
             return Err(AppError::Provider("~/.gemini 目录不存在".into()));
@@ -64,24 +73,51 @@ impl GeminiProvider {
             .map(|n| n.to_string_lossy().to_string())
     }
 
-    /// 解析 Gemini session JSON 文件
+    /// 从第一条用户消息中提取标题（截取前 60 个字符）
+    fn extract_title_from_messages(msgs: &[serde_json::Value]) -> Option<String> {
+        for msg in msgs {
+            if msg.get("type").and_then(|t| t.as_str()) != Some("user") {
+                continue;
+            }
+            // user 消息的 content 是 [{text: "..."}] 数组
+            if let Some(arr) = msg.get("content").and_then(|c| c.as_array()) {
+                if let Some(text) = arr.first().and_then(|item| item.get("text")).and_then(|t| t.as_str()) {
+                    // 去掉开头的 @ 引用（如 "@report.docx"），取有意义的部分
+                    let clean = text.trim();
+                    if clean.is_empty() {
+                        continue;
+                    }
+                    // 截取第一行，最多 60 字符
+                    let first_line = clean.lines().next().unwrap_or(clean);
+                    let truncated: String = first_line.chars().take(60).collect();
+                    if truncated.len() < first_line.len() {
+                        return Some(format!("{}...", truncated));
+                    }
+                    return Some(truncated);
+                }
+            }
+        }
+        None
+    }
+
+    /// 解析 ISO 8601 时间戳
+    fn parse_timestamp(s: &str) -> Option<DateTime<Utc>> {
+        DateTime::parse_from_rfc3339(s)
+            .ok()
+            .map(|dt| dt.with_timezone(&Utc))
+    }
+
+    /// 解析 Gemini session JSON 文件，返回 (消息列表, 标题)
     fn parse_session_file(&self, path: &PathBuf) -> AppResult<(Vec<Message>, Option<String>)> {
         let content = fs::read_to_string(path)?;
         let data: serde_json::Value = serde_json::from_str(&content)?;
 
         let mut messages = Vec::new();
-        let mut title = None;
 
-        // 尝试提取标题
-        if let Some(t) = data.get("title").and_then(|t| t.as_str()) {
-            title = Some(t.to_string());
-        }
+        let msg_array = data.get("messages").and_then(|m| m.as_array());
 
-        // 解析消息列表
-        let msg_array = data
-            .get("messages")
-            .or_else(|| data.get("history"))
-            .and_then(|m| m.as_array());
+        // 从第一条用户消息提取标题
+        let title = msg_array.and_then(|m| Self::extract_title_from_messages(m));
 
         if let Some(msgs) = msg_array {
             for (i, msg) in msgs.iter().enumerate() {
@@ -94,78 +130,171 @@ impl GeminiProvider {
         Ok((messages, title))
     }
 
-    /// 解析单条 Gemini 消息
+    /// 解析单条 Gemini CLI 消息
     fn parse_message(&self, msg: &serde_json::Value, index: usize) -> Option<Message> {
-        let role_str = msg.get("role")?.as_str()?;
-        let role = match role_str {
+        let msg_type = msg.get("type")?.as_str()?;
+
+        let role = match msg_type {
             "user" => Role::User,
-            "model" | "assistant" => Role::Assistant,
+            "gemini" => Role::Assistant,
+            // info/error 作为系统消息展示
+            "info" | "error" => Role::System,
             _ => return None,
         };
 
         let mut content_blocks = Vec::new();
 
-        // Gemini 的 content 可能是 parts 数组
-        let parts = msg
-            .get("parts")
-            .or_else(|| msg.get("content"))
-            .and_then(|p| p.as_array());
-
-        if let Some(parts) = parts {
-            for part in parts {
-                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                    content_blocks.push(ContentBlock::Text {
-                        text: text.to_string(),
-                    });
-                } else if let Some(fc) = part.get("functionCall") {
-                    let name = fc
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-                    let args = fc.get("args").cloned().unwrap_or(serde_json::Value::Null);
-                    content_blocks.push(ContentBlock::ToolUse {
-                        tool_name: name,
-                        tool_id: None,
-                        input: args,
-                    });
-                } else if let Some(fr) = part.get("functionResponse") {
-                    let response = fr
-                        .get("response")
-                        .map(|r| serde_json::to_string_pretty(r).unwrap_or_default())
-                        .unwrap_or_default();
-                    content_blocks.push(ContentBlock::ToolResult {
-                        tool_id: None,
-                        content: response,
-                        is_error: false,
-                    });
-                } else if let Some(thought) = part.get("thought").and_then(|t| t.as_str()) {
-                    content_blocks.push(ContentBlock::Thinking {
-                        text: thought.to_string(),
-                    });
+        match msg_type {
+            "user" => {
+                // user 消息: content 是 [{text: "..."}] 数组
+                if let Some(arr) = msg.get("content").and_then(|c| c.as_array()) {
+                    for item in arr {
+                        if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                            content_blocks.push(ContentBlock::Text {
+                                text: text.to_string(),
+                            });
+                        }
+                    }
                 }
             }
-        } else if let Some(text) = msg.get("content").and_then(|c| c.as_str()) {
-            // content 直接是字符串
-            content_blocks.push(ContentBlock::Text {
-                text: text.to_string(),
-            });
+            "gemini" => {
+                // 1. 思考过程 (thoughts 数组)
+                if let Some(thoughts) = msg.get("thoughts").and_then(|t| t.as_array()) {
+                    for thought in thoughts {
+                        let subject = thought
+                            .get("subject")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("");
+                        let desc = thought
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("");
+                        // 将 subject + description 合并为思考内容
+                        let text = if subject.is_empty() {
+                            desc.to_string()
+                        } else {
+                            format!("**{}**\n{}", subject, desc)
+                        };
+                        if !text.is_empty() {
+                            content_blocks.push(ContentBlock::Thinking { text });
+                        }
+                    }
+                }
+
+                // 2. 工具调用 (toolCalls 数组)
+                if let Some(tool_calls) = msg.get("toolCalls").and_then(|t| t.as_array()) {
+                    for tc in tool_calls {
+                        let name = tc
+                            .get("name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let tool_id = tc
+                            .get("id")
+                            .and_then(|id| id.as_str())
+                            .map(|s| s.to_string());
+                        let args = tc.get("args").cloned().unwrap_or(serde_json::Value::Null);
+
+                        content_blocks.push(ContentBlock::ToolUse {
+                            tool_name: name,
+                            tool_id: tool_id.clone(),
+                            input: args,
+                            agent_id: None,
+                        });
+
+                        // 工具结果内嵌在 result 数组中
+                        if let Some(results) = tc.get("result").and_then(|r| r.as_array()) {
+                            for res in results {
+                                if let Some(fr) = res.get("functionResponse") {
+                                    let output = fr
+                                        .get("response")
+                                        .and_then(|r| {
+                                            // 优先取 output 字段，否则序列化整个 response
+                                            r.get("output")
+                                                .and_then(|o| o.as_str())
+                                                .map(|s| s.to_string())
+                                                .or_else(|| {
+                                                    r.get("error")
+                                                        .and_then(|e| e.as_str())
+                                                        .map(|s| s.to_string())
+                                                })
+                                                .or_else(|| {
+                                                    serde_json::to_string_pretty(r).ok()
+                                                })
+                                        })
+                                        .unwrap_or_default();
+                                    let is_error = fr
+                                        .get("response")
+                                        .and_then(|r| r.get("error"))
+                                        .is_some();
+                                    content_blocks.push(ContentBlock::ToolResult {
+                                        tool_id: tool_id.clone(),
+                                        content: output,
+                                        is_error,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. 正文内容 (content 字符串)
+                if let Some(text) = msg.get("content").and_then(|c| c.as_str()) {
+                    if !text.is_empty() {
+                        content_blocks.push(ContentBlock::Text {
+                            text: text.to_string(),
+                        });
+                    }
+                }
+            }
+            "info" | "error" => {
+                // info/error 消息: content 是纯字符串
+                if let Some(text) = msg.get("content").and_then(|c| c.as_str()) {
+                    if !text.is_empty() {
+                        let prefix = if msg_type == "error" { "⚠ " } else { "" };
+                        content_blocks.push(ContentBlock::Text {
+                            text: format!("{}{}", prefix, text),
+                        });
+                    }
+                }
+            }
+            _ => {}
         }
 
         if content_blocks.is_empty() {
             return None;
         }
 
+        // 解析时间戳
+        let timestamp = msg
+            .get("timestamp")
+            .and_then(|t| t.as_str())
+            .and_then(Self::parse_timestamp);
+
+        // 解析 token 用量
+        let usage = msg.get("tokens").map(|tokens| TokenUsage {
+            input_tokens: tokens.get("input").and_then(|v| v.as_u64()),
+            output_tokens: tokens.get("output").and_then(|v| v.as_u64()),
+            cache_read_tokens: tokens.get("cached").and_then(|v| v.as_u64()),
+        });
+
+        // 使用消息自带的 id
+        let id = msg
+            .get("id")
+            .and_then(|id| id.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("gemini-msg-{}", index));
+
         Some(Message {
-            id: format!("gemini-msg-{}", index),
+            id,
             role,
             content: content_blocks,
-            timestamp: None,
+            timestamp,
             model: msg
                 .get("model")
                 .and_then(|m| m.as_str())
                 .map(|s| s.to_string()),
-            usage: None,
+            usage,
         })
     }
 }
@@ -183,32 +312,30 @@ impl SessionProvider for GeminiProvider {
             let id = Self::session_id_from_path(path);
             let project = Self::project_from_path(path);
 
-            // 快速解析获取摘要信息（不解析全部消息）
+            // 快速解析获取摘要信息
             let (msg_count, title, started_at) = match fs::read_to_string(path) {
                 Ok(content) => {
                     let data: serde_json::Value =
                         serde_json::from_str(&content).unwrap_or_default();
-                    let count = data
-                        .get("messages")
-                        .or_else(|| data.get("history"))
-                        .and_then(|m| m.as_array())
-                        .map(|a| a.len())
-                        .unwrap_or(0);
-                    let title = data
-                        .get("title")
-                        .and_then(|t| t.as_str())
-                        .map(|s| s.to_string());
+
+                    let msgs = data.get("messages").and_then(|m| m.as_array());
+                    let count = msgs.map(|a| a.len()).unwrap_or(0);
+
+                    // 从第一条用户消息提取标题
+                    let title = msgs.and_then(|m| Self::extract_title_from_messages(m));
+
+                    // 优先用 startTime 字段
                     let started = data
-                        .get("createTime")
+                        .get("startTime")
                         .and_then(|t| t.as_str())
-                        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                        .map(|dt| dt.with_timezone(&Utc));
+                        .and_then(Self::parse_timestamp);
+
                     (count, title, started)
                 }
                 Err(_) => (0, None, None),
             };
 
-            // 如果没有时间戳，用文件修改时间
+            // 如果没有 startTime，用文件修改时间
             let started_at = started_at.or_else(|| {
                 fs::metadata(path)
                     .ok()
@@ -244,10 +371,21 @@ impl SessionProvider for GeminiProvider {
         let (messages, title) = self.parse_session_file(path)?;
         let project = Self::project_from_path(path);
 
-        let started_at = fs::metadata(path)
+        // 优先从 JSON 的 startTime 取时间
+        let started_at = fs::read_to_string(path)
             .ok()
-            .and_then(|m| m.modified().ok())
-            .map(|t| DateTime::<Utc>::from(t));
+            .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+            .and_then(|data| {
+                data.get("startTime")
+                    .and_then(|t| t.as_str().map(|s| s.to_string()))
+            })
+            .and_then(|s| Self::parse_timestamp(&s))
+            .or_else(|| {
+                fs::metadata(path)
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .map(|t| DateTime::<Utc>::from(t))
+            });
 
         let summary = SessionSummary {
             id: session_id.to_string(),

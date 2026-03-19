@@ -9,9 +9,11 @@ import { ToolUseBlock, ToolResultBlock } from "./ToolCallBlock";
 
 interface Props {
   message: Message;
+  /** 当前 session id，用于加载 subagent 对话 */
+  sessionId?: string;
 }
 
-export function MessageBubble({ message }: Props) {
+export function MessageBubble({ message, sessionId }: Props) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
 
@@ -56,7 +58,7 @@ export function MessageBubble({ message }: Props) {
         {/* 内容块 */}
         <div className="space-y-1">
           {message.content.map((block, i) => (
-            <ContentBlockRenderer key={i} block={block} />
+            <ContentBlockRenderer key={i} block={block} sessionId={sessionId} />
           ))}
         </div>
       </div>
@@ -64,14 +66,14 @@ export function MessageBubble({ message }: Props) {
   );
 }
 
-function ContentBlockRenderer({ block }: { block: ContentBlock }) {
+function ContentBlockRenderer({ block, sessionId }: { block: ContentBlock; sessionId?: string }) {
   switch (block.type) {
     case "text":
       return <MarkdownContent text={block.text} />;
     case "code":
       return <CodeBlock code={block.code} language={block.language} />;
     case "tool_use":
-      return <ToolUseBlock block={block} />;
+      return <ToolUseBlock block={block} sessionId={sessionId} />;
     case "tool_result":
       return <ToolResultBlock block={block} />;
     case "thinking":

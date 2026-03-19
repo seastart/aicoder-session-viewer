@@ -4,7 +4,7 @@ pub mod gemini;
 pub mod opencode;
 
 use crate::error::AppResult;
-use crate::models::{Session, SessionSummary, ToolKind};
+use crate::models::{Message, Session, SessionSummary, ToolKind};
 
 /// 统一的 Session 数据源接口
 pub trait SessionProvider: Send + Sync {
@@ -24,16 +24,22 @@ pub trait SessionProvider: Send + Sync {
 /// Provider 注册中心，统一管理所有数据源
 pub struct ProviderRegistry {
     providers: Vec<Box<dyn SessionProvider>>,
+    /// Claude Code provider 的引用，用于 subagent 查询
+    claude_provider: Option<claude::ClaudeCodeProvider>,
 }
 
 impl ProviderRegistry {
     /// 初始化所有 Provider（自动跳过不可用的）
     pub fn new() -> Self {
         let mut providers: Vec<Box<dyn SessionProvider>> = Vec::new();
+        let mut claude_provider = None;
 
         // 逐个尝试初始化，失败不影响其他
+        // Claude Code 需要两份实例：一份作为通用 provider，一份专用于 subagent 查询
         if let Ok(p) = claude::ClaudeCodeProvider::new() {
             providers.push(Box::new(p));
+            // 再创建一份用于 subagent
+            claude_provider = claude::ClaudeCodeProvider::new().ok();
         }
         if let Ok(p) = codex::CodexProvider::new() {
             providers.push(Box::new(p));
@@ -45,7 +51,10 @@ impl ProviderRegistry {
             providers.push(Box::new(p));
         }
 
-        Self { providers }
+        Self {
+            providers,
+            claude_provider,
+        }
     }
 
     /// 列出所有工具的 session
@@ -80,6 +89,20 @@ impl ProviderRegistry {
             }
         }
         Err(crate::error::AppError::SessionNotFound(session_id.to_string()))
+    }
+
+    /// 获取 Claude Code subagent 的对话消息
+    pub fn get_subagent_messages(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+    ) -> AppResult<Vec<Message>> {
+        match &self.claude_provider {
+            Some(provider) => provider.get_subagent_messages(session_id, agent_id),
+            None => Err(crate::error::AppError::Provider(
+                "Claude Code provider 不可用".into(),
+            )),
+        }
     }
 
     /// 搜索 session

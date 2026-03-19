@@ -59,6 +59,7 @@ Defined in `commands.rs`, registered in `lib.rs`:
 - `list_all_sessions()` — all tools, sorted by time desc
 - `list_sessions(tool)` — single tool filter
 - `get_session(tool, session_id)` — full session with messages
+- `get_subagent_messages(session_id, agent_id)` — Claude Code subagent messages (lazy-loaded)
 - `search_sessions(query, tool?)` — title/path text search
 
 ### State management

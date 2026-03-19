@@ -77,6 +77,9 @@ pub enum ContentBlock {
         tool_name: String,
         tool_id: Option<String>,
         input: serde_json::Value,
+        /// Claude Code subagent 的 agent_id（仅 Agent 工具调用时有值）
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent_id: Option<String>,
     },
     /// 工具调用结果
     ToolResult {
