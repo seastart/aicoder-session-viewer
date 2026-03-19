@@ -10,6 +10,22 @@
 
 AI 编码助手各自使用不同的格式（JSONL / JSON / SQLite）将会话数据分散存储在不同目录中，没有统一的方式来浏览、搜索或对比这些对话。AICoder Session Viewer 在 Rust 侧将所有数据源归一化为统一模型，前端只需处理一套类型。
 
+## 安装
+
+从 [Releases](https://github.com/seastart/aicoder-session-viewer/releases) 页面下载最新版本。
+
+### macOS
+
+应用未使用 Apple 开发者证书签名，macOS Gatekeeper 可能会提示"应用已损坏"。执行以下命令解除限制：
+
+```bash
+xattr -cr /Applications/AICoder\ Session\ Viewer.app
+```
+
+### Windows / Linux
+
+从 Release 页面下载 `.exe` / `.msi`（Windows）或 `.deb` / `.AppImage`（Linux）直接安装即可。
+
 ## 功能特性
 
 - **多工具支持** — Claude Code、Codex、Gemini CLI、OpenCode

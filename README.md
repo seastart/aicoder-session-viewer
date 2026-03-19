@@ -10,6 +10,22 @@ A unified desktop application for browsing conversation histories from multiple 
 
 AI coding assistants store their session data in different formats (JSONL, JSON, SQLite) scattered across various directories. There's no unified way to browse, search, or compare these conversations. AICoder Session Viewer solves this by normalizing all sources into a single, consistent interface.
 
+## Install
+
+Download the latest release from the [Releases](https://github.com/seastart/aicoder-session-viewer/releases) page.
+
+### macOS
+
+The app is not signed with an Apple Developer certificate. macOS Gatekeeper may block it with an "app is damaged" warning. To fix this, run:
+
+```bash
+xattr -cr /Applications/AICoder\ Session\ Viewer.app
+```
+
+### Windows / Linux
+
+Download the `.exe` / `.msi` (Windows) or `.deb` / `.AppImage` (Linux) from the release page and install normally.
+
 ## Features
 
 - **Multi-tool support** — Claude Code, Codex, Gemini CLI, OpenCode
