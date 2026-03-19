@@ -1,0 +1,155 @@
+import { useState } from "react";
+import { clsx } from "clsx";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { User, Bot, ChevronRight, ChevronDown, Brain } from "lucide-react";
+import type { Message, ContentBlock } from "../../types";
+import { CodeBlock } from "./CodeBlock";
+import { ToolUseBlock, ToolResultBlock } from "./ToolCallBlock";
+
+interface Props {
+  message: Message;
+}
+
+export function MessageBubble({ message }: Props) {
+  const isUser = message.role === "user";
+  const isSystem = message.role === "system";
+
+  return (
+    <div
+      className={clsx("flex gap-3 px-4 py-3", isUser ? "bg-user-bubble/30" : "")}
+    >
+      {/* 头像 */}
+      <div
+        className={clsx(
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+          isUser
+            ? "bg-accent/20 text-accent"
+            : isSystem
+              ? "bg-text-muted/20 text-text-muted"
+              : "bg-success/20 text-success"
+        )}
+      >
+        {isUser ? <User size={14} /> : <Bot size={14} />}
+      </div>
+
+      {/* 内容 */}
+      <div className="min-w-0 flex-1">
+        {/* 角色 + 模型 + 时间 */}
+        <div className="mb-1 flex items-center gap-2 text-xs text-text-muted">
+          <span className="font-medium">
+            {isUser ? "User" : isSystem ? "System" : "Assistant"}
+          </span>
+          {message.model && (
+            <span className="rounded bg-surface px-1.5 py-0.5 text-[10px]">
+              {message.model}
+            </span>
+          )}
+          {message.usage && (
+            <span className="text-[10px]">
+              {message.usage.input_tokens != null && `↑${message.usage.input_tokens}`}
+              {message.usage.output_tokens != null && ` ↓${message.usage.output_tokens}`}
+            </span>
+          )}
+        </div>
+
+        {/* 内容块 */}
+        <div className="space-y-1">
+          {message.content.map((block, i) => (
+            <ContentBlockRenderer key={i} block={block} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContentBlockRenderer({ block }: { block: ContentBlock }) {
+  switch (block.type) {
+    case "text":
+      return <MarkdownContent text={block.text} />;
+    case "code":
+      return <CodeBlock code={block.code} language={block.language} />;
+    case "tool_use":
+      return <ToolUseBlock block={block} />;
+    case "tool_result":
+      return <ToolResultBlock block={block} />;
+    case "thinking":
+      return <ThinkingBlock text={block.text} />;
+    case "image":
+      return (
+        <img
+          src={
+            block.source.startsWith("data:")
+              ? block.source
+              : `data:${block.media_type ?? "image/png"};base64,${block.source}`
+          }
+          alt="AI generated"
+          className="max-w-md rounded-lg"
+        />
+      );
+    default:
+      return null;
+  }
+}
+
+/** Markdown 渲染，内嵌代码块使用 shiki 高亮 */
+function MarkdownContent({ text }: { text: string }) {
+  return (
+    <div className="prose prose-invert prose-sm max-w-none
+                    prose-p:my-1 prose-headings:my-2
+                    prose-pre:my-2 prose-pre:p-0 prose-pre:bg-transparent
+                    prose-code:text-accent prose-code:before:content-none prose-code:after:content-none
+                    prose-a:text-accent prose-a:no-underline hover:prose-a:underline">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        children={text}
+        components={{
+          // 代码块拦截：提取语言并用 CodeBlock 渲染
+          code({ className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || "");
+            const code = String(children).replace(/\n$/, "");
+
+            // 判断是否是块级代码（有 language class 或包含换行）
+            if (match || code.includes("\n")) {
+              return <CodeBlock code={code} language={match?.[1]} />;
+            }
+
+            // 行内代码
+            return (
+              <code className={className} {...props}>
+                {children}
+              </code>
+            );
+          },
+        }}
+      />
+    </div>
+  );
+}
+
+/** 思考过程（可折叠） */
+function ThinkingBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="my-1.5 rounded-lg border border-purple-800/30 bg-thinking-bg">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-hover rounded-lg"
+      >
+        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <Brain size={14} className="text-purple-400" />
+        <span className="text-xs text-purple-400">思考过程</span>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-purple-800/30 px-3 py-2">
+          <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-text-secondary">
+            {text}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}

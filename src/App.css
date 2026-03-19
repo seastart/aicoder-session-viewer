@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+/* 自定义暗色主题变量 */
+@theme {
+  --color-surface: #1e1e2e;
+  --color-surface-hover: #2a2a3e;
+  --color-sidebar: #181825;
+  --color-border: #313244;
+  --color-text-primary: #cdd6f4;
+  --color-text-secondary: #a6adc8;
+  --color-text-muted: #6c7086;
+  --color-accent: #89b4fa;
+  --color-accent-hover: #74c7ec;
+  --color-user-bubble: #1e3a5f;
+  --color-assistant-bubble: #2a2a3e;
+  --color-tool-bg: #1a1a2e;
+  --color-thinking-bg: #2d1f3d;
+  --color-error: #f38ba8;
+  --color-success: #a6e3a1;
+}
+
+/* 全局基础样式 */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* 代码块样式 */
+pre code {
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
