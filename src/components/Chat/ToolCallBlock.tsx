@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import type { ContentBlock, Message } from "../../types";
+import { useLocale } from "../../i18n";
 
 interface ToolUseProps {
   block: Extract<ContentBlock, { type: "tool_use" }>;
@@ -92,11 +93,13 @@ function SubagentConversation({
       });
   }
 
+  const { t } = useLocale();
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 px-3 py-3 text-xs text-text-muted">
         <Loader2 size={14} className="animate-spin" />
-        加载子代理对话...
+        {t.subagentLoading}
       </div>
     );
   }
@@ -104,7 +107,7 @@ function SubagentConversation({
   if (error) {
     return (
       <div className="px-3 py-2 text-xs text-error">
-        加载失败: {error}
+        {t.subagentLoadError(error)}
       </div>
     );
   }
@@ -112,7 +115,7 @@ function SubagentConversation({
   if (!messages || messages.length === 0) {
     return (
       <div className="px-3 py-2 text-xs text-text-muted">
-        无子代理对话内容
+        {t.subagentEmpty}
       </div>
     );
   }
@@ -128,13 +131,14 @@ function SubagentConversation({
 
 /** 简化版的 subagent 消息渲染 */
 function SubagentMessage({ message }: { message: Message }) {
+  const { t } = useLocale();
   const isUser = message.role === "user";
 
   return (
     <div className={clsx("px-3 py-2 text-xs", isUser ? "bg-user-bubble/10" : "")}>
       <div className="flex items-center gap-1.5 mb-0.5 text-text-muted">
         <span className="font-medium text-[10px]">
-          {isUser ? "Prompt" : "Agent"}
+          {isUser ? t.subagentPrompt : t.subagentAgent}
         </span>
         {message.model && (
           <span className="rounded bg-surface px-1 py-0.5 text-[9px]">
@@ -153,6 +157,7 @@ function SubagentMessage({ message }: { message: Message }) {
 
 /** 子代理内容块的简化渲染 */
 function SubagentContentBlock({ block }: { block: ContentBlock }) {
+  const { t } = useLocale();
   const [expanded, setExpanded] = useState(false);
 
   switch (block.type) {
@@ -192,7 +197,7 @@ function SubagentContentBlock({ block }: { block: ContentBlock }) {
             )}
           >
             {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-            <span>{block.is_error ? "错误" : "结果"}</span>
+            <span>{block.is_error ? t.subagentError : t.subagentResult}</span>
             {!expanded && (
               <span className="truncate text-text-muted ml-1">
                 {preview}{preview.length < block.content.length ? "..." : ""}
@@ -217,6 +222,7 @@ interface ToolResultProps {
 }
 
 export function ToolResultBlock({ block }: ToolResultProps) {
+  const { t } = useLocale();
   const [expanded, setExpanded] = useState(false);
   // 只在内容较长时默认折叠
   const isLong = block.content.length > 200;
@@ -242,7 +248,7 @@ export function ToolResultBlock({ block }: ToolResultProps) {
             block.is_error ? "text-error" : "text-text-muted"
           )}
         >
-          {block.is_error ? "错误结果" : "工具结果"}
+          {block.is_error ? t.errorResult : t.toolResult}
           {!expanded && !isLong && (
             <span className="ml-2 text-text-muted">
               {block.content.slice(0, 80)}

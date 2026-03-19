@@ -1,18 +1,19 @@
 import { clsx } from "clsx";
 import { formatDistanceToNow } from "date-fns";
-import { zhCN } from "date-fns/locale";
 import { MessageSquare } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { TOOL_CONFIG } from "../../types";
+import { useLocale } from "../../i18n";
 
 export function SessionList() {
   const { sessions, currentSession, selectSession, loading } =
     useSessionStore();
+  const { t, dateLocale } = useLocale();
 
   if (loading && sessions.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-text-muted">
-        加载中...
+        {t.loading}
       </div>
     );
   }
@@ -20,7 +21,7 @@ export function SessionList() {
   if (sessions.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center px-4 text-center text-text-muted">
-        未找到 session
+        {t.noSessions}
       </div>
     );
   }
@@ -33,7 +34,7 @@ export function SessionList() {
         const timeAgo = session.started_at
           ? formatDistanceToNow(new Date(session.started_at), {
               addSuffix: true,
-              locale: zhCN,
+              locale: dateLocale,
             })
           : "";
 

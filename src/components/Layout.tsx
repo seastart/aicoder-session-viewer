@@ -2,8 +2,11 @@ import { SearchBar } from "./Sidebar/SearchBar";
 import { ToolFilter } from "./Sidebar/ToolFilter";
 import { SessionList } from "./Sidebar/SessionList";
 import { ChatView } from "./Chat/ChatView";
+import { useLocale } from "../i18n";
 
 export function Layout() {
+  const { t } = useLocale();
+
   return (
     <div className="flex h-screen">
       {/* 侧边栏 */}
@@ -11,7 +14,7 @@ export function Layout() {
         {/* 标题 */}
         <div className="shrink-0 border-b border-border px-4 py-3">
           <h1 className="text-sm font-semibold text-text-primary">
-            AICoder Session Viewer
+            {t.appTitle}
           </h1>
         </div>
 

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import "./App.css";
 import { Layout } from "./components/Layout";
 import { useSessionStore } from "./stores/sessionStore";
+import { LocaleProvider } from "./i18n";
 
 function App() {
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
@@ -11,7 +12,11 @@ function App() {
     fetchSessions();
   }, [fetchSessions]);
 
-  return <Layout />;
+  return (
+    <LocaleProvider>
+      <Layout />
+    </LocaleProvider>
+  );
 }
 
 export default App;

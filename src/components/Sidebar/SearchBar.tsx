@@ -1,10 +1,12 @@
 import { Search, X } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useDebounce } from "../../hooks/useDebounce";
+import { useLocale } from "../../i18n";
 
 export function SearchBar() {
   const { searchQuery, setSearchQuery, searchSessions, toolFilter } =
     useSessionStore();
+  const { t } = useLocale();
 
   // 输入防抖 300ms 后触发搜索
   useDebounce(
@@ -23,7 +25,7 @@ export function SearchBar() {
       />
       <input
         type="text"
-        placeholder="搜索 session..."
+        placeholder={t.searchPlaceholder}
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
         className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-8 text-sm

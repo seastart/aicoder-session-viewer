@@ -2,11 +2,13 @@ import { clsx } from "clsx";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { ToolKind } from "../../types";
 import { TOOL_CONFIG } from "../../types";
+import { useLocale } from "../../i18n";
 
 const TOOLS: (ToolKind | null)[] = [null, "claude_code", "codex", "gemini", "open_code"];
 
 export function ToolFilter() {
   const { toolFilter, setToolFilter } = useSessionStore();
+  const { t } = useLocale();
 
   return (
     <div className="flex gap-1 px-3 py-2">
@@ -30,7 +32,7 @@ export function ToolFilter() {
                 : undefined
             }
           >
-            {config?.label ?? "全部"}
+            {config?.label ?? t.all}
           </button>
         );
       })}

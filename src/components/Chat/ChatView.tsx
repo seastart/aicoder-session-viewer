@@ -4,10 +4,11 @@ import { TOOL_CONFIG } from "../../types";
 import { MessageBubble } from "./MessageBubble";
 import { Folder, Clock, MessageSquare } from "lucide-react";
 import { format } from "date-fns";
-import { zhCN } from "date-fns/locale";
+import { useLocale } from "../../i18n";
 
 export function ChatView() {
   const { currentSession, loading } = useSessionStore();
+  const { t, dateLocale } = useLocale();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 切换 session 时滚动到顶部
@@ -20,7 +21,7 @@ export function ChatView() {
       <div className="flex h-full items-center justify-center text-text-muted">
         <div className="text-center">
           <MessageSquare size={48} className="mx-auto mb-4 opacity-30" />
-          <p>选择一个 session 查看对话</p>
+          <p>{t.selectSession}</p>
         </div>
       </div>
     );
@@ -59,13 +60,13 @@ export function ChatView() {
             <span className="flex items-center gap-1">
               <Clock size={12} />
               {format(new Date(summary.started_at), "yyyy-MM-dd HH:mm", {
-                locale: zhCN,
+                locale: dateLocale,
               })}
             </span>
           )}
           <span className="flex items-center gap-1">
             <MessageSquare size={12} />
-            {messages.length} 条消息
+            {t.messageCount(messages.length)}
           </span>
         </div>
       </div>
@@ -74,7 +75,7 @@ export function ChatView() {
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex h-full items-center justify-center text-text-muted">
-            加载中...
+            {t.loading}
           </div>
         ) : (
           <div className="divide-y divide-border/50">

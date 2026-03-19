@@ -6,6 +6,7 @@ import { User, Bot, ChevronRight, ChevronDown, Brain } from "lucide-react";
 import type { Message, ContentBlock } from "../../types";
 import { CodeBlock } from "./CodeBlock";
 import { ToolUseBlock, ToolResultBlock } from "./ToolCallBlock";
+import { useLocale } from "../../i18n";
 
 interface Props {
   message: Message;
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function MessageBubble({ message, sessionId }: Props) {
+  const { t } = useLocale();
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
 
@@ -40,7 +42,7 @@ export function MessageBubble({ message, sessionId }: Props) {
         {/* 角色 + 模型 + 时间 */}
         <div className="mb-1 flex items-center gap-2 text-xs text-text-muted">
           <span className="font-medium">
-            {isUser ? "User" : isSystem ? "System" : "Assistant"}
+            {isUser ? t.roleUser : isSystem ? t.roleSystem : t.roleAssistant}
           </span>
           {message.model && (
             <span className="rounded bg-surface px-1.5 py-0.5 text-[10px]">
@@ -132,6 +134,7 @@ function MarkdownContent({ text }: { text: string }) {
 
 /** 思考过程（可折叠） */
 function ThinkingBlock({ text }: { text: string }) {
+  const { t } = useLocale();
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -142,7 +145,7 @@ function ThinkingBlock({ text }: { text: string }) {
       >
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <Brain size={14} className="text-purple-400" />
-        <span className="text-xs text-purple-400">思考过程</span>
+        <span className="text-xs text-purple-400">{t.thinkingProcess}</span>
       </button>
 
       {expanded && (
