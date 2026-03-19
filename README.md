@@ -4,6 +4,8 @@ A unified desktop application for browsing conversation histories from multiple 
 
 [中文文档](./README_CN.md)
 
+![Screenshot](./public/screenshot.png)
+
 ## Why
 
 AI coding assistants store their session data in different formats (JSONL, JSON, SQLite) scattered across various directories. There's no unified way to browse, search, or compare these conversations. AICoder Session Viewer solves this by normalizing all sources into a single, consistent interface.

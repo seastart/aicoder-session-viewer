@@ -4,6 +4,8 @@
 
 [English](./README.md)
 
+![截图](./public/screenshot.png)
+
 ## 为什么做这个
 
 AI 编码助手各自使用不同的格式（JSONL / JSON / SQLite）将会话数据分散存储在不同目录中，没有统一的方式来浏览、搜索或对比这些对话。AICoder Session Viewer 在 Rust 侧将所有数据源归一化为统一模型，前端只需处理一套类型。
