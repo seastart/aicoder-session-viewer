@@ -29,7 +29,7 @@ export function Layout() {
       </aside>
 
       {/* 主内容区 */}
-      <main className="flex-1">
+      <main className="flex-1 min-w-0">
         <ChatView />
       </main>
     </div>

@@ -224,8 +224,6 @@ interface ToolResultProps {
 export function ToolResultBlock({ block }: ToolResultProps) {
   const { t } = useLocale();
   const [expanded, setExpanded] = useState(false);
-  // 只在内容较长时默认折叠
-  const isLong = block.content.length > 200;
 
   return (
     <div
@@ -244,21 +242,21 @@ export function ToolResultBlock({ block }: ToolResultProps) {
         {block.is_error && <AlertCircle size={14} className="text-error" />}
         <span
           className={clsx(
-            "text-xs",
+            "text-xs min-w-0 truncate",
             block.is_error ? "text-error" : "text-text-muted"
           )}
         >
           {block.is_error ? t.errorResult : t.toolResult}
-          {!expanded && !isLong && (
+          {!expanded && (
             <span className="ml-2 text-text-muted">
-              {block.content.slice(0, 80)}
-              {block.content.length > 80 ? "..." : ""}
+              {block.content.slice(0, 120)}
+              {block.content.length > 120 ? "…" : ""}
             </span>
           )}
         </span>
       </button>
 
-      {(expanded || !isLong) && (
+      {expanded && (
         <div className="border-t border-border px-3 py-2">
           <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-text-secondary">
             {block.content}
