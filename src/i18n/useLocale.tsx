@@ -16,8 +16,21 @@ interface LocaleContextValue {
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
+function parseForcedLang(value: string | undefined): LangKey | null {
+  if (value === "zh" || value === "en") {
+    return value;
+  }
+  return null;
+}
+
 /** 检测系统/浏览器语言，返回 "zh" 或 "en" */
 function detectLang(): LangKey {
+  // 开发时允许通过环境变量临时覆盖语言，便于快速验收文案效果。
+  const forced = parseForcedLang(import.meta.env.VITE_LOCALE);
+  if (forced) {
+    return forced;
+  }
+
   const raw = navigator.language || "en";
   return raw.startsWith("zh") ? "zh" : "en";
 }

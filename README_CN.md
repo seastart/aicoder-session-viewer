@@ -81,6 +81,9 @@ pnpm install
 # 启动开发模式（编译 Rust + 启动 Vite 开发服务器）
 pnpm tauri dev
 
+# 临时用英文界面启动
+VITE_LOCALE=en pnpm tauri dev
+
 # 构建生产版本
 pnpm tauri build
 ```
