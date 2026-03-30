@@ -66,13 +66,50 @@ impl GeminiProvider {
             .to_string()
     }
 
-    /// 从文件路径提取项目目录名
+    /// 从文件路径提取真实项目路径
+    ///
+    /// 路径格式: ~/.gemini/tmp/{project}/chats/session-*.json
+    /// 真实路径存储在: ~/.gemini/tmp/{project}/.project_root
     fn project_from_path(path: &PathBuf) -> Option<String> {
-        // 路径格式: ~/.gemini/tmp/{project}/chats/session-*.json
-        path.parent()? // chats/
-            .parent()? // {project}/
+        let project_dir = path.parent()?.parent()?; // ~/.gemini/tmp/{project}/
+        let project_root_file = project_dir.join(".project_root");
+
+        // 优先读取 .project_root 获取真实完整路径
+        if let Ok(content) = fs::read_to_string(&project_root_file) {
+            let trimmed = content.trim().to_string();
+            if !trimmed.is_empty() {
+                return Some(trimmed);
+            }
+        }
+
+        // 兜底：返回目录名
+        project_dir
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
+    }
+
+    /// 根据 session_id 查找对应的文件
+    ///
+    /// 优先匹配 JSON 中的 sessionId 字段（真实 UUID），
+    /// 其次匹配文件名（向后兼容）
+    fn find_file_by_session_id(&self, files: &[PathBuf], session_id: &str) -> Option<PathBuf> {
+        // 先尝试文件名匹配（快速路径，向后兼容旧 ID 格式）
+        if let Some(path) = files.iter().find(|p| Self::session_id_from_path(p) == session_id) {
+            return Some(path.clone());
+        }
+
+        // 再逐个读取 JSON 匹配真实 sessionId
+        for path in files {
+            if let Ok(content) = fs::read_to_string(path) {
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if data.get("sessionId").and_then(|v| v.as_str()) == Some(session_id) {
+                        return Some(path.clone());
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// 从第一条用户消息中提取标题（截取前 60 个字符）
@@ -311,30 +348,32 @@ impl SessionProvider for GeminiProvider {
         let mut summaries = Vec::new();
 
         for path in &files {
-            let id = Self::session_id_from_path(path);
+            let fallback_id = Self::session_id_from_path(path);
             let project = Self::project_from_path(path);
 
-            // 快速解析获取摘要信息
-            let (msg_count, title, started_at) = match fs::read_to_string(path) {
+            // 解析 JSON，提取真实 sessionId 和摘要信息
+            let (real_id, msg_count, title, started_at) = match fs::read_to_string(path) {
                 Ok(content) => {
                     let data: serde_json::Value =
                         serde_json::from_str(&content).unwrap_or_default();
 
+                    // 使用 JSON 中的 sessionId 作为真实 ID
+                    let real_id = data
+                        .get("sessionId")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
                     let msgs = data.get("messages").and_then(|m| m.as_array());
                     let count = msgs.map(|a| a.len()).unwrap_or(0);
-
-                    // 从第一条用户消息提取标题
                     let title = msgs.and_then(|m| Self::extract_title_from_messages(m));
-
-                    // 优先用 startTime 字段
                     let started = data
                         .get("startTime")
                         .and_then(|t| t.as_str())
                         .and_then(Self::parse_timestamp);
 
-                    (count, title, started)
+                    (real_id, count, title, started)
                 }
-                Err(_) => (0, None, None),
+                Err(_) => (None, 0, None, None),
             };
 
             // 如果没有 startTime，用文件修改时间
@@ -346,7 +385,7 @@ impl SessionProvider for GeminiProvider {
             });
 
             summaries.push(SessionSummary {
-                id,
+                id: real_id.unwrap_or(fallback_id),
                 tool: ToolKind::Gemini,
                 title: title.unwrap_or_else(|| {
                     project
@@ -365,16 +404,16 @@ impl SessionProvider for GeminiProvider {
 
     fn get_session(&self, session_id: &str) -> AppResult<Session> {
         let files = self.find_session_files();
-        let path = files
-            .iter()
-            .find(|p| Self::session_id_from_path(p) == session_id)
+
+        // 查找匹配的文件：先匹配真实 sessionId（从 JSON），再匹配文件名
+        let path = self
+            .find_file_by_session_id(&files, session_id)
             .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
 
-        let (messages, title) = self.parse_session_file(path)?;
-        let project = Self::project_from_path(path);
+        let (messages, title) = self.parse_session_file(&path)?;
+        let project = Self::project_from_path(&path);
 
-        // 优先从 JSON 的 startTime 取时间
-        let started_at = fs::read_to_string(path)
+        let started_at = fs::read_to_string(&path)
             .ok()
             .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
             .and_then(|data| {
@@ -383,7 +422,7 @@ impl SessionProvider for GeminiProvider {
             })
             .and_then(|s| Self::parse_timestamp(&s))
             .or_else(|| {
-                fs::metadata(path)
+                fs::metadata(&path)
                     .ok()
                     .and_then(|m| m.modified().ok())
                     .map(|t| DateTime::<Utc>::from(t))

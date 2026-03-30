@@ -33,6 +33,25 @@ export interface Locale {
   subagentAgent: string;
   subagentError: string;
   subagentResult: string;
+
+  // 导出
+  exportJsonl: string;
+  exportMarkdown: string;
+  exportSuccess: string;
+  exportError: (err: string) => string;
+  export: string;
+
+  // 恢复会话
+  resumeSession: string;
+  resumeSuccess: string;
+  resumeError: (err: string) => string;
+
+  // 项目视图
+  viewFlat: string;
+  viewGrouped: string;
+  newSession: string;
+  ungrouped: string;
+  sessionCount: (n: number) => string;
 }
 
 /** 中文翻译 */
@@ -57,6 +76,25 @@ const zh: Locale = {
   subagentAgent: "Agent",
   subagentError: "错误",
   subagentResult: "结果",
+
+  // 导出
+  exportJsonl: "导出 JSONL",
+  exportMarkdown: "导出 Markdown",
+  exportSuccess: "导出成功",
+  exportError: (err) => `导出失败: ${err}`,
+  export: "导出",
+
+  // 恢复会话
+  resumeSession: "恢复会话",
+  resumeSuccess: "已在终端中打开",
+  resumeError: (err) => `恢复失败: ${err}`,
+
+  // 项目视图
+  viewFlat: "列表视图",
+  viewGrouped: "项目视图",
+  newSession: "新建会话",
+  ungrouped: "未分类",
+  sessionCount: (n) => `${n} 个会话`,
 };
 
 export default zh;

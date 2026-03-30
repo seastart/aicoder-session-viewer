@@ -61,6 +61,10 @@ Defined in `commands.rs`, registered in `lib.rs`:
 - `get_session(tool, session_id)` — full session with messages
 - `get_subagent_messages(session_id, agent_id)` — Claude Code subagent messages (lazy-loaded)
 - `search_sessions(query, tool?)` — title/path text search
+- `resume_session(tool, session_id, project_path?)` — resume session in system terminal
+- `open_new_session(tool, project_path)` — open new session in project directory
+- `export_session_jsonl(tool, session_id, save_path)` — export as JSONL
+- `export_session_markdown(tool, session_id, save_path)` — export as Markdown
 
 ### State management
 

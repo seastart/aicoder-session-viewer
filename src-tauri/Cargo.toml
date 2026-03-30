@@ -22,4 +22,5 @@ thiserror = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 dirs = "6"
 walkdir = "2"
+tauri-plugin-dialog = "2"
 

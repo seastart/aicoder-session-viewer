@@ -32,6 +32,9 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 - **统一数据模型** — 所有格式在 Rust 侧归一化后再传给前端
 - **丰富的内容渲染** — Markdown、Shiki 语法高亮代码块、可折叠的工具调用和思考过程
 - **搜索与过滤** — 按工具类型筛选，按标题或项目路径搜索（300ms 防抖）
+- **项目分组** — 按项目路径将 session 分组为可折叠的文件夹树，支持列表/分组视图切换
+- **恢复会话** — 直接在终端中恢复历史 session（macOS 自动检测 iTerm2、Terminal.app、Warp、Kitty、Alacritty、Ghostty）
+- **导出** — 支持将 session 导出为 JSONL 或 Markdown 格式
 - **暗色主题** — 专为阅读对话设计的暗色 UI，每种工具有独立配色
 - **快速轻量** — 原生 Tauri 应用，资源占用低；SQLite 只读访问
 
@@ -93,6 +96,7 @@ aicoder-session-viewer/
 │       ├── error.rs            # 统一错误类型（thiserror）
 │       ├── models.rs           # 共享数据模型（SessionSummary、Message、ContentBlock 等）
 │       ├── commands.rs         # Tauri IPC 命令
+│       ├── export.rs           # Session 导出（JSONL / Markdown）
 │       └── providers/          # 数据源实现
 │           ├── mod.rs          # SessionProvider trait + ProviderRegistry
 │           ├── claude.rs       # Claude Code（JSONL）
@@ -107,14 +111,17 @@ aicoder-session-viewer/
 │   │   └── sessionStore.ts     # Zustand 状态管理
 │   ├── hooks/
 │   │   └── useDebounce.ts      # 防抖 hook
+│   ├── utils/
+│   │   └── buildProjectTree.ts # Session 按项目路径构建树
 │   └── components/
-│       ├── Layout.tsx           # 双栏布局
+│       ├── Layout.tsx           # 双栏布局 + 视图切换
 │       ├── Sidebar/
 │       │   ├── SearchBar.tsx    # 带防抖的搜索输入
 │       │   ├── ToolFilter.tsx   # 工具类型过滤标签
-│       │   └── SessionList.tsx  # Session 列表（含元信息）
+│       │   ├── SessionList.tsx  # 扁平 Session 列表
+│       │   └── ProjectTree.tsx  # 项目分组文件夹树
 │       └── Chat/
-│           ├── ChatView.tsx     # Session 详情 + 消息列表
+│           ├── ChatView.tsx     # Session 详情 + 恢复/导出按钮
 │           ├── MessageBubble.tsx # 消息渲染（支持所有内容块类型）
 │           ├── CodeBlock.tsx    # Shiki 语法高亮
 │           └── ToolCallBlock.tsx # 可折叠的工具调用/结果块

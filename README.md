@@ -32,6 +32,9 @@ Download the `.exe` / `.msi` (Windows) or `.deb` / `.AppImage` (Linux) from the 
 - **Unified data model** — All session formats normalized on the Rust side before reaching the frontend
 - **Rich content rendering** — Markdown, syntax-highlighted code blocks (via Shiki), collapsible tool calls and thinking blocks
 - **Search & filter** — Filter by tool type, search sessions by title or project path (with 300ms debounce)
+- **Project grouping** — Group sessions by project path in a collapsible folder tree; toggle between flat list and grouped view
+- **Resume sessions** — Resume any historical session directly in a terminal window (auto-detects iTerm2, Terminal.app, Warp, Kitty, Alacritty, Ghostty on macOS)
+- **Export** — Export sessions as JSONL or Markdown via save dialog
 - **Dark theme** — Purpose-built dark UI with per-tool color coding
 - **Fast & lightweight** — Native Tauri app with minimal resource usage; SQLite accessed read-only
 
@@ -93,6 +96,7 @@ aicoder-session-viewer/
 │       ├── error.rs            # Unified error types (thiserror)
 │       ├── models.rs           # Shared data models (SessionSummary, Message, ContentBlock...)
 │       ├── commands.rs         # Tauri IPC commands
+│       ├── export.rs           # Session export (JSONL / Markdown)
 │       └── providers/          # Data source implementations
 │           ├── mod.rs          # SessionProvider trait + ProviderRegistry
 │           ├── claude.rs       # Claude Code (JSONL)
@@ -107,14 +111,17 @@ aicoder-session-viewer/
 │   │   └── sessionStore.ts     # Zustand store
 │   ├── hooks/
 │   │   └── useDebounce.ts
+│   ├── utils/
+│   │   └── buildProjectTree.ts # Group sessions into folder tree
 │   └── components/
-│       ├── Layout.tsx           # Two-column layout
+│       ├── Layout.tsx           # Two-column layout + view mode toggle
 │       ├── Sidebar/
 │       │   ├── SearchBar.tsx    # Debounced search input
 │       │   ├── ToolFilter.tsx   # Tool type filter tabs
-│       │   └── SessionList.tsx  # Session list with metadata
+│       │   ├── SessionList.tsx  # Flat session list
+│       │   └── ProjectTree.tsx  # Grouped project folder tree
 │       └── Chat/
-│           ├── ChatView.tsx     # Session detail + message list
+│           ├── ChatView.tsx     # Session detail + resume & export buttons
 │           ├── MessageBubble.tsx # Message rendering (all content block types)
 │           ├── CodeBlock.tsx    # Shiki syntax highlighting
 │           └── ToolCallBlock.tsx # Collapsible tool use/result blocks

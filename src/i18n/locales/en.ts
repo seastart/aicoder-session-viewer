@@ -35,6 +35,25 @@ const en: Locale = {
   subagentAgent: "Agent",
   subagentError: "Error",
   subagentResult: "Result",
+
+  // 导出
+  exportJsonl: "Export JSONL",
+  exportMarkdown: "Export Markdown",
+  exportSuccess: "Exported successfully",
+  exportError: (err: string) => `Export failed: ${err}`,
+  export: "Export",
+
+  // 恢复会话
+  resumeSession: "Resume Session",
+  resumeSuccess: "Opened in terminal",
+  resumeError: (err: string) => `Resume failed: ${err}`,
+
+  // 项目视图
+  viewFlat: "List View",
+  viewGrouped: "Project View",
+  newSession: "New Session",
+  ungrouped: "Ungrouped",
+  sessionCount: (n: number) => `${n} sessions`,
 };
 
 export default en;

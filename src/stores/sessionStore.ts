@@ -2,6 +2,9 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type { Session, SessionSummary, ToolKind } from "../types";
 
+/** 视图模式：扁平列表 或 按项目分组 */
+export type ViewMode = "flat" | "grouped";
+
 interface SessionState {
   // 数据
   sessions: SessionSummary[];
@@ -13,12 +16,18 @@ interface SessionState {
   toolFilter: ToolKind | null;
   searchQuery: string;
 
+  // 视图模式
+  viewMode: ViewMode;
+  expandedPaths: Set<string>;
+
   // 操作
   fetchSessions: () => Promise<void>;
   selectSession: (tool: ToolKind, sessionId: string) => Promise<void>;
   setToolFilter: (tool: ToolKind | null) => void;
   setSearchQuery: (query: string) => void;
   searchSessions: (query: string, tool?: ToolKind | null) => Promise<void>;
+  setViewMode: (mode: ViewMode) => void;
+  togglePathExpanded: (path: string) => void;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -28,6 +37,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
   toolFilter: null,
   searchQuery: "",
+  viewMode: "flat",
+  expandedPaths: new Set<string>(),
 
   fetchSessions: async () => {
     set({ loading: true, error: null });
@@ -83,5 +94,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     } catch (e) {
       set({ error: String(e), loading: false });
     }
+  },
+
+  setViewMode: (mode) => {
+    set({ viewMode: mode });
+  },
+
+  togglePathExpanded: (path) => {
+    set((state) => {
+      const next = new Set(state.expandedPaths);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return { expandedPaths: next };
+    });
   },
 }));
