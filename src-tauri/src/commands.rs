@@ -133,30 +133,30 @@ pub fn open_new_session(tool: String, project_path: String) -> AppResult<()> {
 
 /// 在系统终端模拟器中执行命令（交互式 TUI 程序需要真正的终端窗口）
 ///
-/// `cwd` 为空或非有效目录时，直接执行命令不做 cd
+/// `cwd` 为空或非有效目录时，由各平台直接执行原始命令
 fn launch_in_terminal(cwd: &str, command: &str) -> AppResult<()> {
-    // 判断 cwd 是否是真实存在的绝对路径目录
-    let valid_cwd = if !cwd.is_empty() && std::path::Path::new(cwd).is_absolute() && std::path::Path::new(cwd).is_dir() {
+    // 先收敛成“可用工作目录”这个平台无关概念，再交给各平台决定如何切目录。
+    // 这样可以避免把 POSIX shell 的转义规则错误地带到 Windows 分支里。
+    let valid_cwd = if !cwd.is_empty()
+        && std::path::Path::new(cwd).is_absolute()
+        && std::path::Path::new(cwd).is_dir()
+    {
         Some(cwd)
     } else {
         None
     };
-    // 组合最终命令：有有效目录则先 cd，否则直接执行
-    let full_command = match valid_cwd {
-        Some(dir) => format!("cd '{}' && {}", escape_single_quotes(dir), command),
-        None => command.to_string(),
-    };
+
     #[cfg(target_os = "macos")]
     {
-        launch_terminal_macos(&full_command)
+        launch_terminal_macos(command, valid_cwd)
     }
     #[cfg(target_os = "linux")]
     {
-        launch_terminal_linux(&full_command)
+        launch_terminal_linux(command, valid_cwd)
     }
     #[cfg(target_os = "windows")]
     {
-        launch_terminal_windows(&full_command, valid_cwd)
+        launch_terminal_windows(command, valid_cwd)
     }
 }
 
@@ -167,10 +167,11 @@ fn launch_in_terminal(cwd: &str, command: &str) -> AppResult<()> {
 /// 2. 已安装的常见终端（检查 /Applications）
 /// 3. 兜底 Terminal.app（macOS 自带）
 #[cfg(target_os = "macos")]
-fn launch_terminal_macos(full_command: &str) -> AppResult<()> {
+fn launch_terminal_macos(command: &str, cwd: Option<&str>) -> AppResult<()> {
+    let full_command = prefix_cwd_for_posix_shell(command, cwd);
     let terminal = detect_macos_terminal();
 
-    let script = build_applescript(&terminal, full_command);
+    let script = build_applescript(&terminal, &full_command);
 
     StdCommand::new("osascript")
         .arg("-e")
@@ -220,10 +221,7 @@ fn detect_macos_terminal() -> MacTerminal {
     ];
 
     // 优先检测正在运行的终端进程
-    if let Ok(output) = StdCommand::new("ps")
-        .args(["-eo", "comm"])
-        .output()
-    {
+    if let Ok(output) = StdCommand::new("ps").args(["-eo", "comm"]).output() {
         let ps_output = String::from_utf8_lossy(&output.stdout);
         for (process_name, terminal) in &candidates {
             if ps_output.lines().any(|line| line.contains(process_name)) {
@@ -341,15 +339,22 @@ end tell"#,
 }
 
 /// 转义单引号（用于嵌入 shell 单引号字符串）
-#[cfg(target_os = "macos")]
 fn escape_single_quotes(s: &str) -> String {
     s.replace('\'', "'\\''")
 }
 
+/// 为 POSIX shell 命令按需补上工作目录切换。
+fn prefix_cwd_for_posix_shell(command: &str, cwd: Option<&str>) -> String {
+    match cwd {
+        Some(dir) => format!("cd '{}' && {}", escape_single_quotes(dir), command),
+        None => command.to_string(),
+    }
+}
+
 /// Linux: 通过 x-terminal-emulator 或常见终端打开
 #[cfg(target_os = "linux")]
-fn launch_terminal_linux(full_command: &str) -> AppResult<()> {
-    let shell_cmd = full_command.to_string();
+fn launch_terminal_linux(command: &str, cwd: Option<&str>) -> AppResult<()> {
+    let shell_cmd = prefix_cwd_for_posix_shell(command, cwd);
 
     // 按优先级尝试常见终端模拟器
     let terminals = [
@@ -379,10 +384,10 @@ fn launch_terminal_linux(full_command: &str) -> AppResult<()> {
 
 /// Windows: 通过 cmd.exe 打开新终端窗口
 #[cfg(target_os = "windows")]
-fn launch_terminal_windows(full_command: &str, cwd: Option<&str>) -> AppResult<()> {
+fn launch_terminal_windows(command: &str, cwd: Option<&str>) -> AppResult<()> {
     let win_cmd = match cwd {
-        Some(dir) => format!("cd /d \"{}\" && {}", dir, full_command),
-        None => full_command.to_string(),
+        Some(dir) => format!("cd /d \"{}\" && {}", dir, command),
+        None => command.to_string(),
     };
 
     StdCommand::new("cmd")
@@ -421,7 +426,9 @@ fn extract_codex_uuid(session_id: &str) -> String {
             && parts[2].len() == 4
             && parts[3].len() == 4
             && parts[4].len() == 12
-            && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))
+            && parts
+                .iter()
+                .all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))
         {
             return candidate.to_string();
         }

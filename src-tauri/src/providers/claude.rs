@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
 use crate::error::{AppError, AppResult};
 use crate::models::*;
 use crate::providers::SessionProvider;
+use chrono::{DateTime, Utc};
 
 /// Claude Code 数据源
 ///
@@ -32,12 +32,13 @@ struct JsonlFileInfo {
 
 impl ClaudeCodeProvider {
     pub fn new() -> AppResult<Self> {
-        let home =
-            dirs::home_dir().ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
+        let home = dirs::home_dir()
+            .ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
         let base_dir = home.join(".claude");
         if !base_dir.exists() {
             return Err(AppError::Provider(format!(
-                "directory not found: {}", base_dir.display()
+                "directory not found: {}",
+                base_dir.display()
             )));
         }
         Ok(Self { base_dir })
@@ -248,9 +249,7 @@ impl ClaudeCodeProvider {
             }
             if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
                 if entry.get("type").and_then(|t| t.as_str()) == Some("progress") {
-                    let parent_tool_id = entry
-                        .get("parentToolUseID")
-                        .and_then(|v| v.as_str());
+                    let parent_tool_id = entry.get("parentToolUseID").and_then(|v| v.as_str());
                     let agent_id = entry
                         .get("data")
                         .and_then(|d| d.get("agentId"))
@@ -327,9 +326,7 @@ impl ClaudeCodeProvider {
             Some(TokenUsage {
                 input_tokens: u.get("input_tokens").and_then(|v| v.as_u64()),
                 output_tokens: u.get("output_tokens").and_then(|v| v.as_u64()),
-                cache_read_tokens: u
-                    .get("cache_read_input_tokens")
-                    .and_then(|v| v.as_u64()),
+                cache_read_tokens: u.get("cache_read_input_tokens").and_then(|v| v.as_u64()),
             })
         });
 
@@ -353,9 +350,7 @@ impl ClaudeCodeProvider {
     fn parse_content(&self, content: &serde_json::Value) -> Vec<ContentBlock> {
         match content {
             serde_json::Value::String(text) => {
-                vec![ContentBlock::Text {
-                    text: text.clone(),
-                }]
+                vec![ContentBlock::Text { text: text.clone() }]
             }
             serde_json::Value::Array(blocks) => blocks
                 .iter()

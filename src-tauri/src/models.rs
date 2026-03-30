@@ -71,7 +71,10 @@ pub enum ContentBlock {
     /// 普通文本 / Markdown
     Text { text: String },
     /// 代码块（带语言标注）
-    Code { language: Option<String>, code: String },
+    Code {
+        language: Option<String>,
+        code: String,
+    },
     /// 工具调用
     ToolUse {
         tool_name: String,

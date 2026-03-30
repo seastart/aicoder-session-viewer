@@ -88,7 +88,9 @@ impl ProviderRegistry {
                 return provider.get_session(session_id);
             }
         }
-        Err(crate::error::AppError::SessionNotFound(session_id.to_string()))
+        Err(crate::error::AppError::SessionNotFound(
+            session_id.to_string(),
+        ))
     }
 
     /// 获取 Claude Code subagent 的对话消息

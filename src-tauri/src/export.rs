@@ -35,10 +35,7 @@ pub fn to_markdown(session: &Session) -> String {
 
     // 标题与元数据
     md.push_str(&format!("# {}\n\n", session.summary.title));
-    md.push_str(&format!(
-        "**Tool:** {}\n",
-        tool_label(session.summary.tool)
-    ));
+    md.push_str(&format!("**Tool:** {}\n", tool_label(session.summary.tool)));
     if let Some(path) = &session.summary.project_path {
         md.push_str(&format!("**Project:** `{}`\n", path));
     }

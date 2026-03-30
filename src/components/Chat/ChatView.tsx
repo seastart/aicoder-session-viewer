@@ -2,7 +2,7 @@ import { useRef, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useSessionStore } from "../../stores/sessionStore";
-import { TOOL_CONFIG } from "../../types";
+import { TOOL_CONFIG, type SessionSummary, type ToolKind } from "../../types";
 import { MessageBubble } from "./MessageBubble";
 import {
   Folder,
@@ -65,7 +65,7 @@ export function ChatView() {
 
   /** 导出为 JSONL */
   const handleExportJsonl = async () => {
-    const fileName = sanitizeFileName(summary.title) + ".jsonl";
+    const fileName = buildExportFileName(summary, "jsonl");
     const path = await save({
       defaultPath: fileName,
       filters: [{ name: "JSONL", extensions: ["jsonl"] }],
@@ -84,7 +84,7 @@ export function ChatView() {
 
   /** 导出为 Markdown */
   const handleExportMarkdown = async () => {
-    const fileName = sanitizeFileName(summary.title) + ".md";
+    const fileName = buildExportFileName(summary, "md");
     const path = await save({
       defaultPath: fileName,
       filters: [{ name: "Markdown", extensions: ["md"] }],
@@ -207,10 +207,52 @@ export function ChatView() {
   );
 }
 
-/** 清理文件名中的非法字符 */
-function sanitizeFileName(name: string): string {
-  return name
-    .replace(/[/\\:*?"<>|]/g, "_")
-    .replace(/\s+/g, "_")
-    .slice(0, 50);
+function buildExportFileName(
+  summary: SessionSummary,
+  extension: "jsonl" | "md",
+): string {
+  const parts = [toolSlug(summary.tool)];
+  const timePart = formatExportTime(summary.started_at);
+  if (timePart) {
+    parts.push(timePart);
+  }
+  parts.push(shortSessionId(summary.id));
+  return `${parts.join("-")}.${extension}`;
+}
+
+function toolSlug(tool: ToolKind): string {
+  switch (tool) {
+    case "claude_code":
+      return "claude";
+    case "codex":
+      return "codex";
+    case "gemini":
+      return "gemini";
+    case "open_code":
+      return "opencode";
+  }
+}
+
+function formatExportTime(startedAt: string | null): string | null {
+  if (!startedAt) {
+    return null;
+  }
+
+  const date = new Date(startedAt);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join("") + `-${pad(date.getHours())}${pad(date.getMinutes())}`;
+}
+
+/** 仅保留稳定且简短的标识，避免导出名被长标题占满。 */
+function shortSessionId(id: string): string {
+  const safe = id.replace(/[^a-zA-Z0-9_-]/g, "");
+  return safe.slice(0, 8) || "session";
 }

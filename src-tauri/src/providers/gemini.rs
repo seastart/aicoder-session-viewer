@@ -26,12 +26,13 @@ pub struct GeminiProvider {
 
 impl GeminiProvider {
     pub fn new() -> AppResult<Self> {
-        let home =
-            dirs::home_dir().ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
+        let home = dirs::home_dir()
+            .ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
         let base_dir = home.join(".gemini");
         if !base_dir.exists() {
             return Err(AppError::Provider(format!(
-                "directory not found: {}", base_dir.display()
+                "directory not found: {}",
+                base_dir.display()
             )));
         }
         Ok(Self { base_dir })
@@ -94,7 +95,10 @@ impl GeminiProvider {
     /// 其次匹配文件名（向后兼容）
     fn find_file_by_session_id(&self, files: &[PathBuf], session_id: &str) -> Option<PathBuf> {
         // 先尝试文件名匹配（快速路径，向后兼容旧 ID 格式）
-        if let Some(path) = files.iter().find(|p| Self::session_id_from_path(p) == session_id) {
+        if let Some(path) = files
+            .iter()
+            .find(|p| Self::session_id_from_path(p) == session_id)
+        {
             return Some(path.clone());
         }
 
@@ -120,7 +124,11 @@ impl GeminiProvider {
             }
             // user 消息的 content 是 [{text: "..."}] 数组
             if let Some(arr) = msg.get("content").and_then(|c| c.as_array()) {
-                if let Some(text) = arr.first().and_then(|item| item.get("text")).and_then(|t| t.as_str()) {
+                if let Some(text) = arr
+                    .first()
+                    .and_then(|item| item.get("text"))
+                    .and_then(|t| t.as_str())
+                {
                     // 去掉开头的 @ 引用（如 "@report.docx"），取有意义的部分
                     let clean = text.trim();
                     if clean.is_empty() {
@@ -257,15 +265,11 @@ impl GeminiProvider {
                                                         .and_then(|e| e.as_str())
                                                         .map(|s| s.to_string())
                                                 })
-                                                .or_else(|| {
-                                                    serde_json::to_string_pretty(r).ok()
-                                                })
+                                                .or_else(|| serde_json::to_string_pretty(r).ok())
                                         })
                                         .unwrap_or_default();
-                                    let is_error = fr
-                                        .get("response")
-                                        .and_then(|r| r.get("error"))
-                                        .is_some();
+                                    let is_error =
+                                        fr.get("response").and_then(|r| r.get("error")).is_some();
                                     content_blocks.push(ContentBlock::ToolResult {
                                         tool_id: tool_id.clone(),
                                         content: output,

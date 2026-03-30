@@ -21,12 +21,13 @@ pub struct OpenCodeProvider {
 
 impl OpenCodeProvider {
     pub fn new() -> AppResult<Self> {
-        let home =
-            dirs::home_dir().ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
+        let home = dirs::home_dir()
+            .ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
         let db_path = home.join(".local/share/opencode/opencode.db");
         if !db_path.exists() {
             return Err(AppError::Provider(format!(
-                "database not found: {}", db_path.display()
+                "database not found: {}",
+                db_path.display()
             )));
         }
         Ok(Self { db_path })
@@ -36,8 +37,7 @@ impl OpenCodeProvider {
     fn open_db(&self) -> AppResult<Connection> {
         let conn = Connection::open_with_flags(
             &self.db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         Ok(conn)
     }

@@ -24,12 +24,13 @@ pub struct CodexProvider {
 
 impl CodexProvider {
     pub fn new() -> AppResult<Self> {
-        let home =
-            dirs::home_dir().ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
+        let home = dirs::home_dir()
+            .ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
         let base_dir = home.join(".codex");
         if !base_dir.exists() {
             return Err(AppError::Provider(format!(
-                "directory not found: {}", base_dir.display()
+                "directory not found: {}",
+                base_dir.display()
             )));
         }
         Ok(Self { base_dir })
@@ -136,7 +137,10 @@ impl CodexProvider {
                     let payload_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
                     let role = payload.get("role").and_then(|r| r.as_str()).unwrap_or("");
                     // 统计助手消息和工具调用
-                    if role == "assistant" || payload_type == "function_call" || payload_type == "function_call_output" {
+                    if role == "assistant"
+                        || payload_type == "function_call"
+                        || payload_type == "function_call_output"
+                    {
                         msg_count += 1;
                     }
                 }
@@ -188,8 +192,7 @@ impl CodexProvider {
                 }
 
                 "event_msg" => {
-                    let payload_type =
-                        payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    let payload_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
                     if payload_type == "user_message" {
                         let text = payload
@@ -219,8 +222,7 @@ impl CodexProvider {
                 }
 
                 "response_item" => {
-                    let payload_type =
-                        payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    let payload_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
                     match payload_type {
                         // 普通消息（assistant / developer / user 上下文注入）
