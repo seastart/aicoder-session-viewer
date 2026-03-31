@@ -63,7 +63,7 @@ jobs:
           releaseBody: |
             ## AICoder Session Viewer ${{ github.ref_name }}
 
-            A unified desktop app for browsing AI coding assistant session histories.
+            A unified desktop app for browsing session history / resume session / export session / new conversation session for multiple AI coding assistants.
 
             ### Supported Tools
             - Claude Code
@@ -73,6 +73,10 @@ jobs:
 
             ### Download
             Choose the installer for your platform below.
+
+            ### Changes
+            The detailed release notes below are generated automatically from the commits and pull requests included in this tag.
+          generateReleaseNotes: true
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
