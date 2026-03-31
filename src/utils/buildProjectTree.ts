@@ -14,6 +14,23 @@ export interface ProjectNode {
   totalCount: number;
 }
 
+/** 将 session 时间统一转成可比较的时间戳，非法值按 0 处理 */
+function getStartedAtTime(session: SessionSummary): number {
+  if (!session.started_at) {
+    return 0;
+  }
+
+  const timestamp = Date.parse(session.started_at);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+/** 按开始时间倒序排列，保证目录视图和普通列表保持同一时间语义 */
+function sortSessionsByStartedAtDesc(sessions: SessionSummary[]): SessionSummary[] {
+  return [...sessions].sort(
+    (a, b) => getStartedAtTime(b) - getStartedAtTime(a)
+  );
+}
+
 /**
  * 将扁平的 session 列表按 project_path 构建为树结构
  *
@@ -49,12 +66,13 @@ export function buildProjectTree(
   // 构建树：检测父子路径关系
   const roots: ProjectNode[] = [];
   const nodeMap = new Map<string, ProjectNode>();
+  const latestStartedAtMap = new Map<string, number>();
 
   for (const path of paths) {
     const node: ProjectNode = {
       path,
       name: path.split("/").filter(Boolean).pop() || path,
-      sessions: grouped.get(path) || [],
+      sessions: sortSessionsByStartedAtDesc(grouped.get(path) || []),
       children: [],
       totalCount: 0,
     };
@@ -77,24 +95,55 @@ export function buildProjectTree(
     }
   }
 
-  // 计算每个节点的 totalCount（从叶到根）
-  function calcTotal(node: ProjectNode): number {
-    node.totalCount =
-      node.sessions.length +
-      node.children.reduce((sum, child) => sum + calcTotal(child), 0);
-    return node.totalCount;
-  }
-  roots.forEach(calcTotal);
+  function compareNodesByLatestActivity(a: ProjectNode, b: ProjectNode): number {
+    const latestDiff =
+      (latestStartedAtMap.get(b.path) || 0) -
+      (latestStartedAtMap.get(a.path) || 0);
+    if (latestDiff !== 0) {
+      return latestDiff;
+    }
 
-  // 按 session 总数降序排列
-  roots.sort((a, b) => b.totalCount - a.totalCount);
+    const countDiff = b.totalCount - a.totalCount;
+    if (countDiff !== 0) {
+      return countDiff;
+    }
+
+    return a.path.localeCompare(b.path);
+  }
+
+  // 自底向上计算聚合信息，并让每层目录都按最近活跃时间倒序排列
+  function calcNodeMeta(node: ProjectNode): number {
+    const ownLatestStartedAt = node.sessions[0]
+      ? getStartedAtTime(node.sessions[0])
+      : 0;
+
+    let latestStartedAt = ownLatestStartedAt;
+    let totalCount = node.sessions.length;
+
+    for (const child of node.children) {
+      const childLatestStartedAt = calcNodeMeta(child);
+      latestStartedAt = Math.max(latestStartedAt, childLatestStartedAt);
+      totalCount += child.totalCount;
+    }
+
+    node.totalCount = totalCount;
+    latestStartedAtMap.set(node.path, latestStartedAt);
+    node.children.sort(compareNodesByLatestActivity);
+
+    return latestStartedAt;
+  }
+
+  roots.forEach(calcNodeMeta);
+
+  // 根目录也按最近活跃时间倒序排列
+  roots.sort(compareNodesByLatestActivity);
 
   // 未分类节点放最后
   if (ungrouped.length > 0) {
     roots.push({
       path: "",
       name: ungroupedLabel,
-      sessions: ungrouped,
+      sessions: sortSessionsByStartedAtDesc(ungrouped),
       children: [],
       totalCount: ungrouped.length,
     });
