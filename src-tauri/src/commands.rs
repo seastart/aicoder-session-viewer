@@ -1,4 +1,6 @@
+use chrono::TimeZone;
 use std::process::Command as StdCommand;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 use crate::error::{AppError, AppResult};
@@ -97,20 +99,37 @@ pub fn resume_session(
     let tool_kind = ToolKind::from_str_loose(&tool)
         .ok_or_else(|| AppError::Provider(format!("未知工具类型: {}", tool)))?;
 
-    // 构建各工具的 resume 命令字符串
-    let command = match tool_kind {
-        ToolKind::ClaudeCode => format!("claude --resume {}", shell_escape(&session_id)),
-        // Codex 的内部 ID 格式为 rollout-{timestamp}-{uuid}，CLI 只需要 UUID 部分
-        ToolKind::Codex => {
-            let codex_id = extract_codex_uuid(&session_id);
-            format!("codex resume {}", shell_escape(&codex_id))
-        }
-        ToolKind::Gemini => format!("gemini --resume {}", shell_escape(&session_id)),
-        ToolKind::OpenCode => format!("opencode --session {}", shell_escape(&session_id)),
-    };
+    let command = build_resume_command(tool_kind, &session_id, None, ResumeLaunchMode::Interactive)?;
 
     let cwd = project_path.unwrap_or_else(|| ".".to_string());
     launch_in_terminal(&cwd, &command)
+}
+
+/// 在 reset 时间到达后恢复历史 session，并附带一条 `continue` prompt
+///
+/// 第一性原理上，这类需求本质不是“模拟键盘输入”，而是“在某个时间点恢复会话，
+/// 并给模型一条后续用户消息”。只要目标 CLI 支持“resume + prompt”，就应该直接
+/// 走这个原生命令，而不是向现有 TTY 注入字符。
+#[tauri::command]
+pub fn resume_session_with_auto_continue(
+    tool: String,
+    session_id: String,
+    project_path: Option<String>,
+    continue_at_ms: u64,
+) -> AppResult<()> {
+    let tool_kind = ToolKind::from_str_loose(&tool)
+        .ok_or_else(|| AppError::Provider(format!("未知工具类型: {}", tool)))?;
+
+    let continue_prompt = "continue";
+    let command = build_resume_command(
+        tool_kind,
+        &session_id,
+        Some(continue_prompt),
+        ResumeLaunchMode::ScheduledAutoContinue,
+    )?;
+    let wrapped_command = wrap_command_with_delayed_launch(&command, continue_at_ms)?;
+    let cwd = project_path.unwrap_or_else(|| ".".to_string());
+    launch_in_terminal(&cwd, &wrapped_command)
 }
 
 /// 在指定项目目录中打开新 session
@@ -158,6 +177,137 @@ fn launch_in_terminal(cwd: &str, command: &str) -> AppResult<()> {
     {
         launch_terminal_windows(command, valid_cwd)
     }
+}
+
+/// 统一构建不同 AI 工具的 resume 命令，避免“普通恢复”和“自动 continue 恢复”
+/// 分别维护两套分支。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ResumeLaunchMode {
+    Interactive,
+    ScheduledAutoContinue,
+}
+
+impl ResumeLaunchMode {
+    fn needs_unattended_permissions(self) -> bool {
+        matches!(self, Self::ScheduledAutoContinue)
+    }
+}
+
+fn build_resume_command(
+    tool_kind: ToolKind,
+    session_id: &str,
+    prompt: Option<&str>,
+    launch_mode: ResumeLaunchMode,
+) -> AppResult<String> {
+    let command = match tool_kind {
+        ToolKind::ClaudeCode => {
+            let mut command = String::from("claude");
+            if launch_mode.needs_unattended_permissions() {
+                command.push_str(" --permission-mode ");
+                command.push_str(&shell_escape("bypassPermissions"));
+            }
+            command.push_str(" --resume ");
+            command.push_str(&shell_escape(session_id));
+            if let Some(prompt) = prompt {
+                command.push(' ');
+                command.push_str(&shell_escape(prompt));
+            }
+            command
+        }
+        // Codex 的内部 ID 格式为 rollout-{timestamp}-{uuid}，CLI 只需要 UUID 部分
+        ToolKind::Codex => {
+            let codex_id = extract_codex_uuid(session_id);
+            let mut command = String::from("codex resume");
+            if launch_mode.needs_unattended_permissions() {
+                // 官方 CLI 文档要求：带子命令时，全局参数写在子命令后面。
+                // 这里使用长参数名而不是 --yolo，兼容性更直接，也更易读。
+                command.push_str(" --dangerously-bypass-approvals-and-sandbox");
+            }
+            command.push(' ');
+            command.push_str(&shell_escape(&codex_id));
+            if let Some(prompt) = prompt {
+                command.push(' ');
+                command.push_str(&shell_escape(prompt));
+            }
+            command
+        }
+        ToolKind::Gemini => {
+            let mut command = String::from("gemini");
+            if launch_mode.needs_unattended_permissions() {
+                command.push_str(" --approval-mode ");
+                command.push_str(&shell_escape("yolo"));
+            }
+            command.push_str(" --resume ");
+            command.push_str(&shell_escape(session_id));
+            if let Some(prompt) = prompt {
+                command.push(' ');
+                command.push_str(&shell_escape(prompt));
+            }
+            command
+        }
+        ToolKind::OpenCode => {
+            let mut command = format!("opencode --session {}", shell_escape(session_id));
+            if let Some(prompt) = prompt {
+                command.push_str(" --prompt ");
+                command.push_str(&shell_escape(prompt));
+            }
+            command
+        }
+    };
+
+    Ok(command)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn wrap_command_with_delayed_launch(command: &str, continue_at_ms: u64) -> AppResult<String> {
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| AppError::Provider(format!("读取系统时间失败: {}", e)))?
+        .as_millis() as u64;
+    let delay_seconds = continue_at_ms.saturating_sub(now_ms).div_ceil(1_000).max(0);
+
+    // 这里用本机本地时区展示计划时间即可，因为真正执行依赖的是绝对时间戳。
+    let continue_at_text = chrono::Local
+        .timestamp_millis_opt(continue_at_ms as i64)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| continue_at_ms.to_string());
+
+    let scheduled_msg = if delay_seconds > 0 {
+        format!(
+            "[AICoder Session Viewer] 已计划在 {} 自动恢复会话并发送 continue。",
+            continue_at_text
+        )
+    } else {
+        "[AICoder Session Viewer] reset 时间已到，立即恢复会话并发送 continue。".to_string()
+    };
+    let firing_msg = "[AICoder Session Viewer] reset 时间已到，正在恢复会话。";
+
+    if delay_seconds == 0 {
+        return Ok(format!(
+            "printf '%s\\n' '{scheduled}' ; exec {command}",
+            scheduled = escape_single_quotes(&scheduled_msg),
+            command = command
+        ));
+    }
+
+    Ok(format!(
+        "printf '%s\\n' '{scheduled}' ; \
+         sleep {delay}; \
+         printf '%s\\n' '{firing}' ; \
+         exec {command}",
+        scheduled = escape_single_quotes(&scheduled_msg),
+        delay = delay_seconds,
+        firing = escape_single_quotes(firing_msg),
+        command = command
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn wrap_command_with_delayed_launch(_command: &str, _continue_at_ms: u64) -> AppResult<String> {
+    Err(AppError::Provider(
+        "自动 continue 目前仅支持 macOS / Linux 终端。".to_string(),
+    ))
 }
 
 /// macOS: 自动检测用户终端，通过 AppleScript 打开并执行命令

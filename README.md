@@ -33,7 +33,7 @@ Download the `.exe` / `.msi` (Windows) or `.deb` / `.AppImage` (Linux) from the 
 - **Rich content rendering** — Markdown, syntax-highlighted code blocks (via Shiki), collapsible tool calls and thinking blocks
 - **Search & filter** — Filter by tool type, search sessions by title or project path (with 300ms debounce)
 - **Project grouping** — Group sessions by project path in a collapsible folder tree; toggle between flat list and grouped view
-- **Resume sessions** — Resume any historical session directly in a terminal window (auto-detects iTerm2, Terminal.app, Warp, Kitty, Alacritty, Ghostty on macOS)
+- **Resume & scheduled continue** — Resume any historical session immediately, or wait until the reset time and then resume with `continue`
 - **Export** — Export sessions as JSONL or Markdown via save dialog
 - **Dark theme** — Purpose-built dark UI with per-tool color coding
 - **Fast & lightweight** — Native Tauri app with minimal resource usage; SQLite accessed read-only
@@ -48,6 +48,26 @@ Download the `.exe` / `.msi` (Windows) or `.deb` / `.AppImage` (Linux) from the 
 | OpenCode | `~/.local/share/opencode/opencode.db` | `%USERPROFILE%\.local\share\opencode\opencode.db` | SQLite |
 
 > All four tools use the user home directory (`~` / `%USERPROFILE%`) as root, with identical directory structures across platforms.
+
+## Scheduled Continue Strategy
+
+When Claude Code, Codex, Gemini CLI, or OpenCode shows a quota message such as `You've hit your limit · resets 1am (Asia/Shanghai)` or `try again at 1:35 PM`, support scheduled continue strategy:
+
+1. Infer the reset time from the most recent session messages. The parser currently recognizes phrasings such as `resets ...`, `try again at ...`, and `available again at ...`. If no explicit reset time is found, it falls back to the next local `01:00`.
+2. Add a fixed 5-minute safety buffer on top of the inferred reset time, so the app does not fire exactly at the boundary.
+3. Open a fresh terminal window or tab.
+4. Wait until the target time.
+5. Run a native `resume + prompt` command that restores the session and sends `continue`.
+6. When the target CLI supports unattended execution flags, append them as well so the resumed run does not stall on approval prompts.
+
+Current command shapes for scheduled continue:
+
+- Claude Code: `claude --permission-mode bypassPermissions --resume <session-id> "continue"`
+- Codex: `codex resume --dangerously-bypass-approvals-and-sandbox <session-id> "continue"`
+- Gemini CLI: `gemini --approval-mode yolo --resume <session-id> "continue"`
+- OpenCode: `opencode --session <session-id> --prompt "continue"`
+
+This keeps the behavior aligned with each vendor CLI's supported session model instead of depending on terminal input injection hacks. Where supported, the app also opts into unattended approval modes so the resumed run can proceed without stopping for confirmation.
 
 ## Tech Stack
 

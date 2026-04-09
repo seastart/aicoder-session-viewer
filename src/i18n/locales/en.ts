@@ -47,6 +47,10 @@ const en: Locale = {
   resumeSession: "Resume Session",
   resumeSuccess: "Opened in terminal",
   resumeError: (err: string) => `Resume failed: ${err}`,
+  autoContinue: "Scheduled Continue",
+  autoContinueTooltip: (time: string) =>
+    `Wait until ${time} (including a 5-minute safety buffer), then resume the session and send continue; supported CLIs automatically enable unattended approval mode`,
+  autoContinueError: (err: string) => `Auto continue failed: ${err}`,
 
   // 项目视图
   viewFlat: "List View",

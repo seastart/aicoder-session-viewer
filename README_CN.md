@@ -33,7 +33,7 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 - **丰富的内容渲染** — Markdown、Shiki 语法高亮代码块、可折叠的工具调用和思考过程
 - **搜索与过滤** — 按工具类型筛选，按标题或项目路径搜索（300ms 防抖）
 - **项目分组** — 按项目路径将 session 分组为可折叠的文件夹树，支持列表/分组视图切换
-- **恢复会话** — 直接在终端中恢复历史 session（macOS 自动检测 iTerm2、Terminal.app、Warp、Kitty、Alacritty、Ghostty）
+- **恢复与定时继续** — 既可直接恢复历史 session，也可等待到 reset 时间后自动恢复并附带 `continue`
 - **导出** — 支持将 session 导出为 JSONL 或 Markdown 格式
 - **暗色主题** — 专为阅读对话设计的暗色 UI，每种工具有独立配色
 - **快速轻量** — 原生 Tauri 应用，资源占用低；SQLite 只读访问
@@ -48,6 +48,25 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 | OpenCode | `~/.local/share/opencode/opencode.db` | `%USERPROFILE%\.local\share\opencode\opencode.db` | SQLite |
 
 > 四款工具在所有平台上均以用户主目录（`~` / `%USERPROFILE%`）为根目录，目录结构跨平台一致。
+
+## 定时继续策略
+
+当 Claude Code、Codex、Gemini CLI 或 OpenCode 出现配额提示，例如 `You've hit your limit · resets 1am (Asia/Shanghai)` 或 `try again at 1:35 PM` 时，支持定时自动继续：
+
+1. 从当前 session 的最近消息里推断 reset 时间，当前会识别 `resets ...`、`try again at ...`、`available again at ...` 等文案；如果没解析到，就回退到本地时区的下一个 `01:00`。
+2. 在推断出的解禁时间基础上，统一再增加 5 分钟缓冲，避免踩在整点或解禁瞬间。
+3. 先打开一个新的终端窗口或 tab。
+4. 等到目标时间后，再执行“恢复会话 + 一条 `continue` prompt”的 CLI 命令。
+5. 为了避免无人值守恢复卡在权限确认上，支持的 CLI 会额外附加各自的自动批准参数。
+
+各工具在“定时继续”场景下当前使用的命令形态如下：
+
+- Claude Code: `claude --permission-mode bypassPermissions --resume <session-id> "continue"`
+- Codex: `codex resume --dangerously-bypass-approvals-and-sandbox <session-id> "continue"`
+- Gemini CLI: `gemini --approval-mode yolo --resume <session-id> "continue"`
+- OpenCode: `opencode --session <session-id> --prompt "continue"`
+
+这个策略的本质是“在正确时间点重新发起一次原生恢复请求”，而不是“接管正在运行的旧终端”。前者依赖 CLI 官方支持的 `resume + prompt` 能力；如果 CLI 还支持无人值守权限模式，就一并带上，避免恢复后又停在审批弹窗上。
 
 ## 技术栈
 

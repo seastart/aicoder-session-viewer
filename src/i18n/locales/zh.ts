@@ -45,6 +45,9 @@ export interface Locale {
   resumeSession: string;
   resumeSuccess: string;
   resumeError: (err: string) => string;
+  autoContinue: string;
+  autoContinueTooltip: (time: string) => string;
+  autoContinueError: (err: string) => string;
 
   // 项目视图
   viewFlat: string;
@@ -88,6 +91,10 @@ const zh: Locale = {
   resumeSession: "恢复会话",
   resumeSuccess: "已在终端中打开",
   resumeError: (err) => `恢复失败: ${err}`,
+  autoContinue: "定时继续",
+  autoContinueTooltip: (time) =>
+    `等待到 ${time}（含 5 分钟缓冲）后，再恢复会话并发送 continue；支持的 CLI 会自动启用无人值守权限模式`,
+  autoContinueError: (err) => `定时继续失败: ${err}`,
 
   // 项目视图
   viewFlat: "列表视图",

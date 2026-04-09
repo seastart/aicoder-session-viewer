@@ -23,6 +23,7 @@ pub fn run() {
             commands::export_session_jsonl,
             commands::export_session_markdown,
             commands::resume_session,
+            commands::resume_session_with_auto_continue,
             commands::open_new_session,
         ])
         .run(tauri::generate_context!())
