@@ -319,6 +319,7 @@ impl GeminiProvider {
             input_tokens: tokens.get("input").and_then(|v| v.as_u64()),
             output_tokens: tokens.get("output").and_then(|v| v.as_u64()),
             cache_read_tokens: tokens.get("cached").and_then(|v| v.as_u64()),
+            cache_creation_tokens: None,
         });
 
         // 使用消息自带的 id
@@ -380,13 +381,14 @@ impl SessionProvider for GeminiProvider {
                 Err(_) => (None, 0, None, None),
             };
 
+            let file_mtime = fs::metadata(path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| DateTime::<Utc>::from(t));
+
             // 如果没有 startTime，用文件修改时间
-            let started_at = started_at.or_else(|| {
-                fs::metadata(path)
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .map(|t| DateTime::<Utc>::from(t))
-            });
+            let started_at = started_at.or(file_mtime);
+            let updated_at = file_mtime;
 
             summaries.push(SessionSummary {
                 id: real_id.unwrap_or(fallback_id),
@@ -398,11 +400,17 @@ impl SessionProvider for GeminiProvider {
                 }),
                 project_path: project,
                 started_at,
+                updated_at,
                 message_count: msg_count,
+                total_tokens: None,
             });
         }
 
-        summaries.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        summaries.sort_by(|a, b| {
+            let a_time = a.updated_at.or(a.started_at);
+            let b_time = b.updated_at.or(b.started_at);
+            b_time.cmp(&a_time)
+        });
         Ok(summaries)
     }
 
@@ -432,6 +440,8 @@ impl SessionProvider for GeminiProvider {
                     .map(|t| DateTime::<Utc>::from(t))
             });
 
+        let updated_at = messages.last().and_then(|m| m.timestamp);
+        let total_tokens = sum_message_tokens(&messages);
         let summary = SessionSummary {
             id: session_id.to_string(),
             tool: ToolKind::Gemini,
@@ -442,7 +452,9 @@ impl SessionProvider for GeminiProvider {
             }),
             project_path: project,
             started_at,
+            updated_at,
             message_count: messages.len(),
+            total_tokens,
         };
 
         Ok(Session { summary, messages })

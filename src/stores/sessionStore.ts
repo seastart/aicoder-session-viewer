@@ -30,6 +30,9 @@ interface SessionState {
   togglePathExpanded: (path: string) => void;
 }
 
+// 递增的请求 ID，用于防止异步竞态（旧请求的结果覆盖新请求）
+let fetchRequestId = 0;
+
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   currentSession: null,
@@ -41,6 +44,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   expandedPaths: new Set<string>(),
 
   fetchSessions: async () => {
+    const requestId = ++fetchRequestId;
     set({ loading: true, error: null });
     try {
       const { toolFilter } = get();
@@ -50,9 +54,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       } else {
         sessions = await invoke("list_all_sessions");
       }
-      set({ sessions, loading: false });
+      // 仅当这是最新一次请求时才更新状态，防止旧结果覆盖
+      if (requestId === fetchRequestId) {
+        set({ sessions, loading: false });
+      }
     } catch (e) {
-      set({ error: String(e), loading: false });
+      if (requestId === fetchRequestId) {
+        // 出错时清空列表，避免展示不属于当前 filter 的旧数据
+        set({ sessions: [], error: String(e), loading: false });
+      }
     }
   },
 
@@ -70,8 +80,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   setToolFilter: (tool) => {
-    set({ toolFilter: tool });
-    // 重新获取 session 列表
+    // 切换 filter 时立即清空旧列表，避免展示不属于当前 filter 的数据
+    set({ toolFilter: tool, sessions: [] });
     get().fetchSessions();
   },
 

@@ -8,7 +8,11 @@ export interface SessionSummary {
   title: string;
   project_path: string | null;
   started_at: string | null;
+  /** 最后活跃时间 */
+  updated_at: string | null;
   message_count: number;
+  /** session 级别的 token 汇总（输入+输出） */
+  total_tokens: number | null;
 }
 
 /** 完整 Session */
@@ -36,11 +40,16 @@ export type ContentBlock =
   | { type: "thinking"; text: string }
   | { type: "image"; source: string; media_type: string | null };
 
-/** Token 用量 */
+/** Token 用量
+ *
+ * input_tokens 统一为"该轮 API 调用的总输入 token 数"（含缓存部分），
+ * 各 provider 在 Rust 侧已完成归一化。
+ */
 export interface TokenUsage {
   input_tokens: number | null;
   output_tokens: number | null;
   cache_read_tokens: number | null;
+  cache_creation_tokens: number | null;
 }
 
 /** 工具显示配置 */

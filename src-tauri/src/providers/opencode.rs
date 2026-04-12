@@ -146,9 +146,10 @@ impl SessionProvider for OpenCodeProvider {
 
         let mut stmt = conn.prepare(
             "SELECT s.id, s.title, s.directory, s.time_created,
-                    (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) as msg_count
+                    (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) as msg_count,
+                    (SELECT MAX(m.time_created) FROM message m WHERE m.session_id = s.id) as last_msg_time
              FROM session s
-             ORDER BY s.time_created DESC",
+             ORDER BY COALESCE(last_msg_time, s.time_created) DESC",
         )?;
 
         let summaries = stmt
@@ -158,6 +159,7 @@ impl SessionProvider for OpenCodeProvider {
                 let directory: Option<String> = row.get(2)?;
                 let time_created: i64 = row.get(3)?;
                 let msg_count: usize = row.get(4)?;
+                let last_msg_time: Option<i64> = row.get(5)?;
 
                 Ok(SessionSummary {
                     id,
@@ -169,7 +171,9 @@ impl SessionProvider for OpenCodeProvider {
                     },
                     project_path: directory,
                     started_at: Some(Self::millis_to_datetime(time_created)),
+                    updated_at: last_msg_time.map(Self::millis_to_datetime),
                     message_count: msg_count,
+                    total_tokens: None,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -184,7 +188,8 @@ impl SessionProvider for OpenCodeProvider {
         // 获取 session 信息
         let summary = conn.query_row(
             "SELECT id, title, directory, time_created,
-                    (SELECT COUNT(*) FROM message WHERE session_id = ?1) as msg_count
+                    (SELECT COUNT(*) FROM message WHERE session_id = ?1) as msg_count,
+                    (SELECT MAX(time_created) FROM message WHERE session_id = ?1) as last_msg_time
              FROM session WHERE id = ?1",
             [session_id],
             |row| {
@@ -193,6 +198,7 @@ impl SessionProvider for OpenCodeProvider {
                 let directory: Option<String> = row.get(2)?;
                 let time_created: i64 = row.get(3)?;
                 let msg_count: usize = row.get(4)?;
+                let last_msg_time: Option<i64> = row.get(5)?;
 
                 Ok(SessionSummary {
                     id,
@@ -204,7 +210,9 @@ impl SessionProvider for OpenCodeProvider {
                     },
                     project_path: directory,
                     started_at: Some(Self::millis_to_datetime(time_created)),
+                    updated_at: last_msg_time.map(Self::millis_to_datetime),
                     message_count: msg_count,
+                    total_tokens: None,
                 })
             },
         )?;
@@ -292,10 +300,11 @@ impl SessionProvider for OpenCodeProvider {
 
         let mut stmt = conn.prepare(
             "SELECT s.id, s.title, s.directory, s.time_created,
-                    (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) as msg_count
+                    (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) as msg_count,
+                    (SELECT MAX(m.time_created) FROM message m WHERE m.session_id = s.id) as last_msg_time
              FROM session s
              WHERE s.title LIKE ?1 OR s.directory LIKE ?1
-             ORDER BY s.time_created DESC",
+             ORDER BY COALESCE(last_msg_time, s.time_created) DESC",
         )?;
 
         let summaries = stmt
@@ -305,6 +314,7 @@ impl SessionProvider for OpenCodeProvider {
                 let directory: Option<String> = row.get(2)?;
                 let time_created: i64 = row.get(3)?;
                 let msg_count: usize = row.get(4)?;
+                let last_msg_time: Option<i64> = row.get(5)?;
 
                 Ok(SessionSummary {
                     id,
@@ -316,7 +326,9 @@ impl SessionProvider for OpenCodeProvider {
                     },
                     project_path: directory,
                     started_at: Some(Self::millis_to_datetime(time_created)),
+                    updated_at: last_msg_time.map(Self::millis_to_datetime),
                     message_count: msg_count,
+                    total_tokens: None,
                 })
             })?
             .filter_map(|r| r.ok())

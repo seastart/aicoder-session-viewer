@@ -8,6 +8,7 @@ import {
   type SessionSummary,
   type ToolKind,
 } from "../../types";
+import { formatTokenCount } from "../../utils/format";
 import { MessageBubble } from "./MessageBubble";
 import {
   Folder,
@@ -19,6 +20,7 @@ import {
   ChevronDown,
   FileText,
   FileJson,
+  Zap,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useLocale } from "../../i18n";
@@ -58,6 +60,9 @@ export function ChatView() {
 
   const { summary, messages } = currentSession;
   const config = TOOL_CONFIG[summary.tool];
+
+  // 汇总 session 级别的 token 用量
+  const totalUsage = aggregateTokenUsage(messages);
   const showScheduledContinue = hasRecentRateLimitMessage(messages);
   const autoContinueAt = inferAutoContinueTime(messages);
   const autoContinueAtText = format(new Date(autoContinueAt), "yyyy-MM-dd HH:mm", {
@@ -230,6 +235,16 @@ export function ChatView() {
             <MessageSquare size={12} />
             {t.messageCount(messages.length)}
           </span>
+          {totalUsage.total > 0 && (
+            <span
+              className="flex items-center gap-1"
+              title={t.tokenDetail(totalUsage.input, totalUsage.output, totalUsage.cacheRead, totalUsage.cacheCreation)}
+            >
+              <Zap size={12} />
+              <span>↑{formatTokenCount(totalUsage.input)}</span>
+              <span>↓{formatTokenCount(totalUsage.output)}</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -465,3 +480,32 @@ function nextLocalOccurrence(hour: number, minute: number, now: Date): Date {
 function withScheduledContinueBuffer(date: Date): Date {
   return new Date(date.getTime() + SCHEDULED_CONTINUE_BUFFER_MS);
 }
+
+/** 汇总所有消息的 token 用量
+ *
+ * input_tokens 已在后端归一化为"总输入"（含缓存），
+ * 因此 total = input + output 即为真实 API 消耗。
+ */
+function aggregateTokenUsage(messages: Message[]): {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+  total: number;
+} {
+  let input = 0;
+  let output = 0;
+  let cacheRead = 0;
+  let cacheCreation = 0;
+
+  for (const msg of messages) {
+    if (!msg.usage) continue;
+    input += msg.usage.input_tokens ?? 0;
+    output += msg.usage.output_tokens ?? 0;
+    cacheRead += msg.usage.cache_read_tokens ?? 0;
+    cacheCreation += msg.usage.cache_creation_tokens ?? 0;
+  }
+
+  return { input, output, cacheRead, cacheCreation, total: input + output };
+}
+

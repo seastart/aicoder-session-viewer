@@ -32,7 +32,11 @@ pub struct SessionSummary {
     pub title: String,
     pub project_path: Option<String>,
     pub started_at: Option<DateTime<Utc>>,
+    /// 最后活跃时间，用于排序（优先使用此字段，没有时回退到 started_at）
+    pub updated_at: Option<DateTime<Utc>>,
     pub message_count: usize,
+    /// session 级别的 token 汇总（输入+输出），用于列表展示
+    pub total_tokens: Option<u64>,
 }
 
 /// 完整 Session，包含所有消息
@@ -99,10 +103,29 @@ pub enum ContentBlock {
     },
 }
 
+/// 从消息列表汇总 token 总量（input + output）
+pub fn sum_message_tokens(messages: &[Message]) -> Option<u64> {
+    let mut total = 0u64;
+    let mut has_any = false;
+    for msg in messages {
+        if let Some(usage) = &msg.usage {
+            has_any = true;
+            total += usage.input_tokens.unwrap_or(0) + usage.output_tokens.unwrap_or(0);
+        }
+    }
+    if has_any { Some(total) } else { None }
+}
+
 /// Token 用量
+///
+/// 注意：`input_tokens` 统一表示该轮 API 调用的实际总输入 token 数（含缓存部分），
+/// 各 provider 在构造时负责归一化：
+/// - Claude API: input_tokens = raw_input + cache_read + cache_creation
+/// - Codex/OpenAI: input_tokens 已包含缓存，无需额外处理
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenUsage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub cache_read_tokens: Option<u64>,
+    pub cache_creation_tokens: Option<u64>,
 }

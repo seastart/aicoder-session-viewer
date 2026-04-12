@@ -1,8 +1,9 @@
 import { clsx } from "clsx";
 import { formatDistanceToNow } from "date-fns";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, Zap } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { TOOL_CONFIG } from "../../types";
+import { formatTokenCount } from "../../utils/format";
 import { useLocale } from "../../i18n";
 
 export function SessionList() {
@@ -77,9 +78,19 @@ export function SessionList() {
                   {session.project_path.split("/").pop()}
                 </span>
               )}
-              <span className="ml-auto flex items-center gap-0.5">
-                <MessageSquare size={10} />
-                {session.message_count}
+              <span className="ml-auto flex items-center gap-2">
+                {session.message_count > 0 && (
+                  <span className="flex items-center gap-0.5">
+                    <MessageSquare size={10} />
+                    {session.message_count}
+                  </span>
+                )}
+                {session.total_tokens != null && session.total_tokens > 0 && (
+                  <span className="flex items-center gap-0.5">
+                    <Zap size={10} />
+                    {formatTokenCount(session.total_tokens)}
+                  </span>
+                )}
               </span>
             </div>
           </button>

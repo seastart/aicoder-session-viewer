@@ -3,7 +3,7 @@ import { clsx } from "clsx";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { User, Bot, ChevronRight, ChevronDown, Brain } from "lucide-react";
-import type { Message, ContentBlock } from "../../types";
+import type { Message, ContentBlock, TokenUsage } from "../../types";
 import { CodeBlock } from "./CodeBlock";
 import { ToolUseBlock, ToolResultBlock } from "./ToolCallBlock";
 import { useLocale } from "../../i18n";
@@ -50,9 +50,9 @@ export function MessageBubble({ message, sessionId }: Props) {
             </span>
           )}
           {message.usage && (
-            <span className="text-[10px]">
-              {message.usage.input_tokens != null && `↑${message.usage.input_tokens}`}
-              {message.usage.output_tokens != null && ` ↓${message.usage.output_tokens}`}
+            <span className="text-[10px]" title={formatUsageTooltip(message.usage)}>
+              {message.usage.input_tokens != null && `↑${message.usage.input_tokens.toLocaleString()}`}
+              {message.usage.output_tokens != null && ` ↓${message.usage.output_tokens.toLocaleString()}`}
             </span>
           )}
         </div>
@@ -157,4 +157,27 @@ function ThinkingBlock({ text }: { text: string }) {
       )}
     </div>
   );
+}
+
+/** 构建单条消息的 usage tooltip，展示缓存命中等细节 */
+function formatUsageTooltip(usage: TokenUsage): string {
+  const parts: string[] = [];
+  if (usage.input_tokens != null) {
+    let inputStr = `输入: ${usage.input_tokens.toLocaleString()}`;
+    const cacheDetails: string[] = [];
+    if (usage.cache_read_tokens) {
+      cacheDetails.push(`缓存命中: ${usage.cache_read_tokens.toLocaleString()}`);
+    }
+    if (usage.cache_creation_tokens) {
+      cacheDetails.push(`新建缓存: ${usage.cache_creation_tokens.toLocaleString()}`);
+    }
+    if (cacheDetails.length > 0) {
+      inputStr += ` (${cacheDetails.join(", ")})`;
+    }
+    parts.push(inputStr);
+  }
+  if (usage.output_tokens != null) {
+    parts.push(`输出: ${usage.output_tokens.toLocaleString()}`);
+  }
+  return parts.join(" | ");
 }

@@ -12,6 +12,7 @@ export interface Locale {
   // 聊天区
   selectSession: string;
   messageCount: (n: number) => string;
+  tokenDetail: (input: number, output: number, cacheRead: number, cacheCreation: number) => string;
 
   // 角色
   roleUser: string;
@@ -66,6 +67,8 @@ const zh: Locale = {
   noSessions: "未找到 session",
   selectSession: "选择一个 session 查看对话",
   messageCount: (n) => `${n} 条消息`,
+  tokenDetail: (input, output, cacheRead, cacheCreation) =>
+    `输入: ${input.toLocaleString()}${cacheRead ? ` (缓存命中: ${cacheRead.toLocaleString()})` : ""}${cacheCreation ? ` (新建缓存: ${cacheCreation.toLocaleString()})` : ""} | 输出: ${output.toLocaleString()}`,
   roleUser: "User",
   roleSystem: "System",
   roleAssistant: "Assistant",

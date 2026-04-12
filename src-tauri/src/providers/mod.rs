@@ -66,8 +66,12 @@ impl ProviderRegistry {
                 Err(e) => eprintln!("[{}] 列出 session 失败: {}", provider.tool_kind_label(), e),
             }
         }
-        // 按时间倒序排列
-        all.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        // 按最后活跃时间倒序
+        all.sort_by(|a, b| {
+            let a_time = a.updated_at.or(a.started_at);
+            let b_time = b.updated_at.or(b.started_at);
+            b_time.cmp(&a_time)
+        });
         Ok(all)
     }
 
@@ -125,7 +129,11 @@ impl ProviderRegistry {
                 Err(e) => eprintln!("[{}] 搜索失败: {}", provider.tool_kind_label(), e),
             }
         }
-        results.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        results.sort_by(|a, b| {
+            let a_time = a.updated_at.or(a.started_at);
+            let b_time = b.updated_at.or(b.started_at);
+            b_time.cmp(&a_time)
+        });
         Ok(results)
     }
 }

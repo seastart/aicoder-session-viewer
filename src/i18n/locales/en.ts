@@ -14,6 +14,8 @@ const en: Locale = {
   // 聊天区
   selectSession: "Select a session to view conversation",
   messageCount: (n: number) => `${n} messages`,
+  tokenDetail: (input: number, output: number, cacheRead: number, cacheCreation: number) =>
+    `Input: ${input.toLocaleString()}${cacheRead ? ` (cache hit: ${cacheRead.toLocaleString()})` : ""}${cacheCreation ? ` (cache write: ${cacheCreation.toLocaleString()})` : ""} | Output: ${output.toLocaleString()}`,
 
   // 角色
   roleUser: "User",

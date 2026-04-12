@@ -323,10 +323,17 @@ impl ClaudeCodeProvider {
             .map(|dt| dt.with_timezone(&Utc));
 
         let usage = message.get("usage").and_then(|u| {
+            // Claude API 的 input_tokens 仅含未缓存部分，需要加上缓存读取和新建缓存
+            let raw_input = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let cache_read = u.get("cache_read_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let cache_creation = u.get("cache_creation_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let total_input = raw_input + cache_read + cache_creation;
+
             Some(TokenUsage {
-                input_tokens: u.get("input_tokens").and_then(|v| v.as_u64()),
+                input_tokens: Some(total_input),
                 output_tokens: u.get("output_tokens").and_then(|v| v.as_u64()),
-                cache_read_tokens: u.get("cache_read_input_tokens").and_then(|v| v.as_u64()),
+                cache_read_tokens: if cache_read > 0 { Some(cache_read) } else { None },
+                cache_creation_tokens: if cache_creation > 0 { Some(cache_creation) } else { None },
             })
         });
 
@@ -498,6 +505,11 @@ impl SessionProvider for ClaudeCodeProvider {
 
             // 从 JSONL 内容取时间戳
             let started_at = Self::extract_timestamp_from_jsonl(&info.path);
+            // 文件修改时间作为最后活跃时间
+            let updated_at = fs::metadata(&info.path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(DateTime::<Utc>::from);
 
             summaries.push(SessionSummary {
                 id: info.session_id.clone(),
@@ -505,12 +517,18 @@ impl SessionProvider for ClaudeCodeProvider {
                 title,
                 project_path: Some(project_path),
                 started_at,
+                updated_at,
                 message_count,
+                total_tokens: None,
             });
         }
 
-        // 按时间倒序
-        summaries.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        // 按最后活跃时间倒序（没有 updated_at 时回退到 started_at）
+        summaries.sort_by(|a, b| {
+            let a_time = a.updated_at.or(a.started_at);
+            let b_time = b.updated_at.or(b.started_at);
+            b_time.cmp(&a_time)
+        });
         Ok(summaries)
     }
 
@@ -527,14 +545,18 @@ impl SessionProvider for ClaudeCodeProvider {
         let project_path = Self::extract_cwd_from_jsonl(&info.path)
             .unwrap_or_else(|| Self::dir_name_to_path(&info.project_dir_name));
         let started_at = messages.first().and_then(|m| m.timestamp);
+        let updated_at = messages.last().and_then(|m| m.timestamp);
 
+        let total_tokens = sum_message_tokens(&messages);
         let summary = SessionSummary {
             id: session_id.to_string(),
             tool: ToolKind::ClaudeCode,
             title,
             project_path: Some(project_path),
             started_at,
+            updated_at,
             message_count: messages.len(),
+            total_tokens,
         };
 
         Ok(Session { summary, messages })
