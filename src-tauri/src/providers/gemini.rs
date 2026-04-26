@@ -193,13 +193,30 @@ impl GeminiProvider {
 
         match msg_type {
             "user" => {
-                // user 消息: content 是 [{text: "..."}] 数组
+                // user 消息: content 是数组，每项可能是 {text} 或 {inlineData: {data, mimeType}}
                 if let Some(arr) = msg.get("content").and_then(|c| c.as_array()) {
                     for item in arr {
                         if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                             content_blocks.push(ContentBlock::Text {
                                 text: text.to_string(),
                             });
+                        } else if let Some(inline) = item.get("inlineData") {
+                            // Gemini 把上传的图片存为 base64 + mimeType
+                            let data = inline
+                                .get("data")
+                                .and_then(|d| d.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            if !data.is_empty() {
+                                let media_type = inline
+                                    .get("mimeType")
+                                    .and_then(|m| m.as_str())
+                                    .map(|s| s.to_string());
+                                content_blocks.push(ContentBlock::Image {
+                                    source: data,
+                                    media_type,
+                                });
+                            }
                         }
                     }
                 }

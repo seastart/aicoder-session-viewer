@@ -198,6 +198,10 @@ impl CodexProvider {
         let mut title: Option<String> = None;
         let mut project_path: Option<String> = None;
         let mut msg_index = 0;
+        // 缓冲：用户粘贴的图片在 response_item(role=user) 中以 input_image 出现，
+        // 紧跟其后的 event_msg.user_message 才是真正展示的用户消息（含 [Image #N] 占位文本）。
+        // 此处先把图片暂存，待 user_message 到达时一并附加到消息内容里。
+        let mut pending_user_images: Vec<ContentBlock> = Vec::new();
 
         for line in content.lines() {
             let line = line.trim();
@@ -244,11 +248,19 @@ impl CodexProvider {
                                 title = Some(truncate_title(&text, 80));
                             }
 
-                            if !text.is_empty() {
+                            // 文本与图片任一存在即生成消息；图片来自前面 response_item 的缓冲
+                            let has_text = !text.is_empty();
+                            let has_images = !pending_user_images.is_empty();
+                            if has_text || has_images {
+                                let mut blocks: Vec<ContentBlock> = Vec::new();
+                                if has_text {
+                                    blocks.push(ContentBlock::Text { text });
+                                }
+                                blocks.append(&mut pending_user_images);
                                 messages.push(Message {
                                     id: format!("codex-{}", msg_index),
                                     role: Role::User,
-                                    content: vec![ContentBlock::Text { text }],
+                                    content: blocks,
                                     timestamp,
                                     model: None,
                                     usage: None,
@@ -320,7 +332,6 @@ impl CodexProvider {
                             let role_str =
                                 payload.get("role").and_then(|r| r.as_str()).unwrap_or("");
 
-                            // 只展示 assistant 消息，developer/user 上下文注入跳过
                             if role_str == "assistant" {
                                 let blocks = Self::parse_content_blocks(payload);
                                 if !blocks.is_empty() {
@@ -334,7 +345,12 @@ impl CodexProvider {
                                     });
                                     msg_index += 1;
                                 }
+                            } else if role_str == "user" {
+                                // 用户 response_item：仅提取 input_image，文本由 user_message 事件提供
+                                pending_user_images
+                                    .extend(Self::parse_user_image_blocks(payload));
                             }
+                            // developer 等上下文注入直接跳过
                         }
 
                         // 工具调用
@@ -421,6 +437,42 @@ impl CodexProvider {
         }
 
         Ok((messages, title, project_path))
+    }
+
+    /// 从用户 response_item 的 content 数组中提取图片块
+    ///
+    /// Codex 把粘贴/附件图片记录为 `{type: "input_image", image_url: "data:image/png;base64,..."}`，
+    /// 紧邻的 input_text 则用 `<image name=[Image #N]>` / `</image>` 作为分隔符——
+    /// 这些文本会在 user_message 中以占位符形式重新出现，所以这里只关心图片本身。
+    fn parse_user_image_blocks(payload: &serde_json::Value) -> Vec<ContentBlock> {
+        let mut images = Vec::new();
+        let Some(content_arr) = payload.get("content").and_then(|c| c.as_array()) else {
+            return images;
+        };
+
+        for block in content_arr {
+            let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if block_type != "input_image" {
+                continue;
+            }
+            let Some(url) = block.get("image_url").and_then(|u| u.as_str()) else {
+                continue;
+            };
+            // 拆解 data URI，方便前端显示与导出统一处理
+            let (source, media_type) = if let Some(rest) = url.strip_prefix("data:") {
+                if let Some((meta, data)) = rest.split_once(',') {
+                    let mt = meta.split(';').next().map(|s| s.to_string());
+                    (data.to_string(), mt)
+                } else {
+                    (url.to_string(), None)
+                }
+            } else {
+                (url.to_string(), None)
+            };
+
+            images.push(ContentBlock::Image { source, media_type });
+        }
+        images
     }
 
     /// 从 payload.content 数组中提取 ContentBlock 列表

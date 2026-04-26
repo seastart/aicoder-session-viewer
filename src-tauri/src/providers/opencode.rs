@@ -120,6 +120,29 @@ impl OpenCodeProvider {
                     text: text.to_string(),
                 })
             }
+            // 用户上传的附件（图片/文件），仅展示图片类型，PDF 等其他类型跳过
+            "file" => {
+                let mime = val.get("mime").and_then(|m| m.as_str()).unwrap_or("");
+                if !mime.starts_with("image/") {
+                    return None;
+                }
+                let url = val.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                if url.is_empty() {
+                    return None;
+                }
+                // 拆出 data URI 的 base64 部分，前端渲染与导出统一
+                let (source, media_type) = if let Some(rest) = url.strip_prefix("data:") {
+                    if let Some((meta, data)) = rest.split_once(',') {
+                        let mt = meta.split(';').next().map(|s| s.to_string());
+                        (data.to_string(), mt)
+                    } else {
+                        (url.to_string(), Some(mime.to_string()))
+                    }
+                } else {
+                    (url.to_string(), Some(mime.to_string()))
+                };
+                Some(ContentBlock::Image { source, media_type })
+            }
             // step-start 等控制类型跳过
             "step-start" | "step-finish" => None,
             _ => {

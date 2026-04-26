@@ -26,7 +26,6 @@ import { format } from "date-fns";
 import { useLocale } from "../../i18n";
 
 const SCHEDULED_CONTINUE_BUFFER_MS = 5 * 60 * 1000;
-const RATE_LIMIT_RECENCY_WINDOW_MS = 60 * 60 * 1000;
 
 export function ChatView() {
   const { currentSession, loading } = useSessionStore();
@@ -63,11 +62,14 @@ export function ChatView() {
 
   // 汇总 session 级别的 token 用量
   const totalUsage = aggregateTokenUsage(messages);
-  const showScheduledContinue = hasRecentRateLimitMessage(messages);
   const autoContinueAt = inferAutoContinueTime(messages);
-  const autoContinueAtText = format(new Date(autoContinueAt), "yyyy-MM-dd HH:mm", {
-    locale: dateLocale,
-  });
+  const showScheduledContinue = autoContinueAt !== null;
+  const autoContinueAtText =
+    autoContinueAt === null
+      ? ""
+      : format(new Date(autoContinueAt), "yyyy-MM-dd HH:mm", {
+          locale: dateLocale,
+        });
 
   /** 恢复会话 */
   const handleResume = async () => {
@@ -84,6 +86,10 @@ export function ChatView() {
 
   /** 等待到推断出的 reset 时间，再恢复会话并发送 continue */
   const handleAutoContinue = async () => {
+    if (autoContinueAt === null) {
+      return;
+    }
+
     try {
       await invoke("resume_session_with_auto_continue", {
         tool: summary.tool,
@@ -317,63 +323,44 @@ function shortSessionId(id: string): string {
 }
 
 /**
- * 优先从最近消息中推断 vendor 提示的 reset 时间；推断失败时回退到本地时区的下一个 01:00。
- * 为了避开供应商侧的时钟抖动、缓存和整点切换，真正执行时间会统一延后 5 分钟。
+ * 从最近一条可解析的 rate limit 消息中推断恢复时间。
  *
- * 这样做的核心原则很简单：
- * 1. 如果日志里已经出现了精确 reset 时间，就直接复用；
- * 2. 如果没有，就采用用户最常见的 quota reset 点作为保守默认值。
+ * 第一性原理上，是否展示“定时自动恢复”取决于：
+ * 1. 会话里是否真的出现过可解析 reset 时间的限额消息；
+ * 2. 这条消息对应的恢复时间现在是否还没过。
+ *
+ * 因此这里不再依赖“最近 1 小时”这种与业务目标弱相关的代理条件，
+ * 而是直接基于最后一条 quota 消息本身来计算。
  */
-function inferAutoContinueTime(messages: Message[], now = new Date()): number {
-  const parsed = inferResetClockFromMessages(messages);
-  if (parsed) {
-    return withScheduledContinueBuffer(
-      nextLocalOccurrence(parsed.hour24, parsed.minute, now),
-    ).getTime();
-  }
-  return withScheduledContinueBuffer(nextLocalOccurrence(1, 0, now)).getTime();
-}
-
-function hasRecentRateLimitMessage(messages: Message[], now = new Date()): boolean {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (!messageContainsRateLimit(message)) {
-      continue;
-    }
-
-    if (!message.timestamp) {
-      return true;
-    }
-
-    const timestamp = new Date(message.timestamp);
-    if (Number.isNaN(timestamp.getTime())) {
-      continue;
-    }
-
-    return now.getTime() - timestamp.getTime() <= RATE_LIMIT_RECENCY_WINDOW_MS;
+function inferAutoContinueTime(messages: Message[], now = new Date()): number | null {
+  const rateLimitInfo = findLatestRateLimitInfo(messages);
+  if (!rateLimitInfo) {
+    return null;
   }
 
-  return false;
-}
+  const continueAt = withScheduledContinueBuffer(
+    nextLocalOccurrence(
+      rateLimitInfo.reset.hour24,
+      rateLimitInfo.reset.minute,
+      rateLimitInfo.occurredAt ?? now,
+    ),
+  ).getTime();
 
-function messageContainsRateLimit(message: Message): boolean {
-  for (const block of message.content) {
-    const text = blockToSearchableText(block);
-    if (!text) {
-      continue;
-    }
-
-    if (extractResetClock(text) && containsRateLimitSignal(text)) {
-      return true;
-    }
+  // 有原始时间戳时，若该次限额对应的恢复点已经过去，就不再展示定时按钮，
+  // 避免把几天前的旧 quota 错误映射成“下一次同钟点”的未来任务。
+  if (rateLimitInfo.occurredAt && continueAt <= now.getTime()) {
+    return null;
   }
 
-  return false;
+  return continueAt;
 }
 
-function inferResetClockFromMessages(
+function findLatestRateLimitInfo(
   messages: Message[],
-): { hour24: number; minute: number } | null {
+): {
+  reset: { hour24: number; minute: number };
+  occurredAt: Date | null;
+} | null {
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
     const message = messages[messageIndex];
     for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex -= 1) {
@@ -383,13 +370,29 @@ function inferResetClockFromMessages(
       }
 
       const parsed = extractResetClock(text);
-      if (parsed) {
-        return parsed;
+      if (parsed && containsRateLimitSignal(text)) {
+        return {
+          reset: parsed,
+          occurredAt: parseMessageTimestamp(message.timestamp),
+        };
       }
     }
   }
 
   return null;
+}
+
+function parseMessageTimestamp(timestamp: string | null | undefined): Date | null {
+  if (!timestamp) {
+    return null;
+  }
+
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed;
 }
 
 function extractResetClock(text: string): { hour24: number; minute: number } | null {
@@ -508,4 +511,3 @@ function aggregateTokenUsage(messages: Message[]): {
 
   return { input, output, cacheRead, cacheCreation, total: input + output };
 }
-
