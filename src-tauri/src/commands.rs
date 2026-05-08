@@ -99,7 +99,8 @@ pub fn resume_session(
     let tool_kind = ToolKind::from_str_loose(&tool)
         .ok_or_else(|| AppError::Provider(format!("未知工具类型: {}", tool)))?;
 
-    let command = build_resume_command(tool_kind, &session_id, None, ResumeLaunchMode::Interactive)?;
+    let command =
+        build_resume_command(tool_kind, &session_id, None, ResumeLaunchMode::Interactive)?;
 
     let cwd = project_path.unwrap_or_else(|| ".".to_string());
     launch_in_terminal(&cwd, &command)
@@ -265,6 +266,7 @@ fn wrap_command_with_delayed_launch(command: &str, continue_at_ms: u64) -> AppRe
         .map_err(|e| AppError::Provider(format!("读取系统时间失败: {}", e)))?
         .as_millis() as u64;
     let delay_seconds = continue_at_ms.saturating_sub(now_ms).div_ceil(1_000).max(0);
+    let target_epoch_seconds = continue_at_ms.div_ceil(1_000);
 
     // 这里用本机本地时区展示计划时间即可，因为真正执行依赖的是绝对时间戳。
     let continue_at_text = chrono::Local
@@ -291,13 +293,22 @@ fn wrap_command_with_delayed_launch(command: &str, continue_at_ms: u64) -> AppRe
         ));
     }
 
+    // 系统睡眠时，终端里的长 sleep 可能不会按墙上时间推进。
+    // 因此这里以绝对 epoch 时间为准，短周期睡眠后反复校验；机器唤醒后最多再等
+    // 一个轮询周期就会触发，而不是继续补完睡眠前剩余的数小时。
     Ok(format!(
         "printf '%s\\n' '{scheduled}' ; \
-         sleep {delay}; \
+         target_epoch={target_epoch}; \
+         while [ \"$(date +%s)\" -lt \"$target_epoch\" ]; do \
+           now_epoch=$(date +%s); \
+           remaining=$((target_epoch - now_epoch)); \
+           if [ \"$remaining\" -le 0 ]; then break; fi; \
+           if [ \"$remaining\" -gt 60 ]; then sleep 60; else sleep \"$remaining\"; fi; \
+         done; \
          printf '%s\\n' '{firing}' ; \
          exec {command}",
         scheduled = escape_single_quotes(&scheduled_msg),
-        delay = delay_seconds,
+        target_epoch = target_epoch_seconds,
         firing = escape_single_quotes(firing_msg),
         command = command
     ))
@@ -585,4 +596,32 @@ fn extract_codex_uuid(session_id: &str) -> String {
     }
     // 无法提取时原样返回
     session_id.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn delayed_launch_uses_wall_clock_polling_instead_of_one_long_sleep() {
+        let continue_at_ms = (SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64)
+            + 5 * 60 * 1_000;
+
+        let command =
+            wrap_command_with_delayed_launch("claude --resume abc continue", continue_at_ms)
+                .unwrap();
+
+        assert!(
+            command.contains("date +%s"),
+            "定时恢复应反复读取墙上时钟，避免系统睡眠后长 sleep 继续等待"
+        );
+        assert!(
+            !command.contains("sleep 300"),
+            "定时恢复不应生成一次性长 sleep"
+        );
+    }
 }

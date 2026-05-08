@@ -1,0 +1,7 @@
+interface:
+  display_name: "Release"
+  short_description: "发布 AICoder Session Viewer 新版本"
+  default_prompt: "Use $release to bump versions, verify, commit, tag, and push a new release."
+
+policy:
+  allow_implicit_invocation: true
