@@ -1,11 +1,12 @@
 {
   "name": "aicoder-session-viewer",
   "private": true,
-  "version": "0.1.8",
+  "version": "0.1.9",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:session-search": "node src/utils/sessionSearch.test.ts",
     "preview": "vite preview",
     "tauri": "tauri"
   },

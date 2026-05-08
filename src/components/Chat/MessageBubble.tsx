@@ -4,6 +4,7 @@ import { clsx } from "clsx";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { User, Bot, ChevronRight, ChevronDown, Brain, X } from "lucide-react";
+import { format, type Locale as DateFnsLocale } from "date-fns";
 import type { Message, ContentBlock, TokenUsage } from "../../types";
 import { CodeBlock } from "./CodeBlock";
 import { ToolUseBlock, ToolResultBlock } from "./ToolCallBlock";
@@ -13,16 +14,35 @@ interface Props {
   message: Message;
   /** 当前 session id，用于加载 subagent 对话 */
   sessionId?: string;
+  /** 当前消息是否包含会话内搜索命中 */
+  searchMatched?: boolean;
+  /** 当前消息是否是正在查看的搜索命中 */
+  activeSearchMatch?: boolean;
 }
 
-export function MessageBubble({ message, sessionId }: Props) {
-  const { t } = useLocale();
+export function MessageBubble({
+  message,
+  sessionId,
+  searchMatched = false,
+  activeSearchMatch = false,
+}: Props) {
+  const { t, dateLocale } = useLocale();
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
+  const messageTime = formatMessageTime(message.timestamp, dateLocale);
 
   return (
     <div
-      className={clsx("flex gap-3 px-4 py-3", isUser ? "bg-user-bubble/30" : "")}
+      className={clsx(
+        "flex gap-3 border-l-4 px-4 py-3 transition-colors",
+        isUser ? "bg-user-bubble/30" : "",
+        searchMatched
+          ? "border-accent/70 bg-accent/10"
+          : "border-transparent",
+        activeSearchMatch
+          ? "border-accent bg-accent/15 ring-1 ring-inset ring-accent/80"
+          : "",
+      )}
     >
       {/* 头像 */}
       <div
@@ -56,6 +76,15 @@ export function MessageBubble({ message, sessionId }: Props) {
               {message.usage.output_tokens != null && ` ↓${message.usage.output_tokens.toLocaleString()}`}
             </span>
           )}
+          {messageTime && (
+            <time
+              dateTime={message.timestamp ?? undefined}
+              title={messageTime.full}
+              className="ml-auto shrink-0 text-[10px] tabular-nums text-text-muted"
+            >
+              {messageTime.short}
+            </time>
+          )}
         </div>
 
         {/* 内容块 */}
@@ -67,6 +96,25 @@ export function MessageBubble({ message, sessionId }: Props) {
       </div>
     </div>
   );
+}
+
+function formatMessageTime(
+  timestamp: string | null,
+  dateLocale: DateFnsLocale,
+): { short: string; full: string } | null {
+  if (!timestamp) {
+    return null;
+  }
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return {
+    short: format(date, "MM-dd HH:mm", { locale: dateLocale }),
+    full: format(date, "yyyy-MM-dd HH:mm:ss", { locale: dateLocale }),
+  };
 }
 
 function ContentBlockRenderer({ block, sessionId }: { block: ContentBlock; sessionId?: string }) {

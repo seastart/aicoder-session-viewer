@@ -13,6 +13,13 @@ export interface Locale {
   selectSession: string;
   messageCount: (n: number) => string;
   tokenDetail: (input: number, output: number, cacheRead: number, cacheCreation: number) => string;
+  sessionSearchPlaceholder: string;
+  sessionSearchCount: (current: number, total: number) => string;
+  clearSearch: string;
+  previousMatch: string;
+  nextMatch: string;
+  scrollToTop: string;
+  scrollToBottom: string;
 
   // 角色
   roleUser: string;
@@ -69,6 +76,13 @@ const zh: Locale = {
   messageCount: (n) => `${n} 条消息`,
   tokenDetail: (input, output, cacheRead, cacheCreation) =>
     `输入: ${input.toLocaleString()}${cacheRead ? ` (缓存命中: ${cacheRead.toLocaleString()})` : ""}${cacheCreation ? ` (新建缓存: ${cacheCreation.toLocaleString()})` : ""} | 输出: ${output.toLocaleString()}`,
+  sessionSearchPlaceholder: "搜索当前对话...",
+  sessionSearchCount: (current, total) => `${current}/${total}`,
+  clearSearch: "清空搜索",
+  previousMatch: "上一个命中",
+  nextMatch: "下一个命中",
+  scrollToTop: "回到顶部",
+  scrollToBottom: "跳到底部",
   roleUser: "User",
   roleSystem: "System",
   roleAssistant: "Assistant",

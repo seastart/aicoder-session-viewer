@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -18,12 +18,21 @@ import {
   Play,
   Download,
   ChevronDown,
+  ChevronUp,
   FileText,
   FileJson,
   Zap,
+  Search,
+  X,
+  ArrowDownToLine,
+  ArrowUpToLine,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useLocale } from "../../i18n";
+import {
+  findSessionSearchMatches,
+  isSessionSearchShortcut,
+} from "../../utils/sessionSearch";
 
 const SCHEDULED_CONTINUE_BUFFER_MS = 5 * 60 * 1000;
 
@@ -31,12 +40,62 @@ export function ChatView() {
   const { currentSession, loading } = useSessionStore();
   const { t, dateLocale } = useLocale();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const messageRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [exportOpen, setExportOpen] = useState(false);
+  const [sessionSearchQuery, setSessionSearchQuery] = useState("");
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const sessionMessages = currentSession?.messages ?? [];
+  const currentSessionId = currentSession?.summary.id;
+  const searchMatches = useMemo(
+    () => findSessionSearchMatches(sessionMessages, sessionSearchQuery),
+    [sessionMessages, sessionSearchQuery],
+  );
+  const activeMatch = searchMatches[activeMatchIndex] ?? null;
+  const matchedMessageIndexes = useMemo(
+    () => new Set(searchMatches.map((match) => match.messageIndex)),
+    [searchMatches],
+  );
 
   // 切换 session 时滚动到顶部
   useEffect(() => {
     scrollRef.current?.scrollTo(0, 0);
-  }, [currentSession?.summary.id]);
+    setSessionSearchQuery("");
+    setActiveMatchIndex(0);
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    setActiveMatchIndex(0);
+  }, [sessionSearchQuery, currentSessionId]);
+
+  useEffect(() => {
+    if (!activeMatch) {
+      return;
+    }
+    messageRefs.current[activeMatch.messageIndex]?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [activeMatch]);
+
+  useEffect(() => {
+    if (!currentSessionId) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isSessionSearchShortcut(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [currentSessionId]);
 
   // 点击外部关闭导出菜单
   useEffect(() => {
@@ -139,6 +198,29 @@ export function ChatView() {
     } catch (err) {
       console.error("Export Markdown failed:", err);
     }
+  };
+
+  const scrollToTop = () => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const scrollToBottom = () => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) {
+      return;
+    }
+    scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: "smooth" });
+  };
+
+  const jumpSearchMatch = (direction: 1 | -1) => {
+    if (searchMatches.length === 0) {
+      return;
+    }
+
+    // 命中列表是循环导航：长 session 中连续按按钮时不需要手动回到开头。
+    setActiveMatchIndex((current) =>
+      (current + direction + searchMatches.length) % searchMatches.length,
+    );
   };
 
   return (
@@ -252,6 +334,85 @@ export function ChatView() {
             </span>
           )}
         </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[220px] flex-1 sm:max-w-md">
+            <Search
+              size={14}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted"
+            />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={sessionSearchQuery}
+              onChange={(event) => setSessionSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") {
+                  return;
+                }
+                event.preventDefault();
+                jumpSearchMatch(event.shiftKey ? -1 : 1);
+              }}
+              placeholder={t.sessionSearchPlaceholder}
+              className="h-8 w-full rounded-md border border-border bg-surface py-1 pl-8 pr-8 text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+            />
+            {sessionSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setSessionSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                title={t.clearSearch}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          <span className="w-16 text-center text-xs text-text-muted">
+            {sessionSearchQuery.trim()
+              ? t.sessionSearchCount(
+                  searchMatches.length === 0 ? 0 : activeMatchIndex + 1,
+                  searchMatches.length,
+                )
+              : ""}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => jumpSearchMatch(-1)}
+            disabled={searchMatches.length === 0}
+            className="rounded p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+            title={t.previousMatch}
+          >
+            <ChevronUp size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => jumpSearchMatch(1)}
+            disabled={searchMatches.length === 0}
+            className="rounded p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+            title={t.nextMatch}
+          >
+            <ChevronDown size={14} />
+          </button>
+          <div className="h-5 w-px bg-border" />
+          <button
+            type="button"
+            onClick={scrollToTop}
+            className="rounded p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+            title={t.scrollToTop}
+          >
+            <ArrowUpToLine size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            className="rounded p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+            title={t.scrollToBottom}
+          >
+            <ArrowDownToLine size={14} />
+          </button>
+        </div>
       </div>
 
       {/* 消息列表 */}
@@ -263,7 +424,20 @@ export function ChatView() {
         ) : (
           <div className="divide-y divide-border/50">
             {messages.map((msg, i) => (
-              <MessageBubble key={msg.id || i} message={msg} sessionId={summary.id} />
+              <div
+                key={msg.id || i}
+                ref={(element) => {
+                  messageRefs.current[i] = element;
+                }}
+                className="scroll-mt-20"
+              >
+                <MessageBubble
+                  message={msg}
+                  sessionId={summary.id}
+                  searchMatched={matchedMessageIndexes.has(i)}
+                  activeSearchMatch={activeMatch?.messageIndex === i}
+                />
+              </div>
             ))}
           </div>
         )}

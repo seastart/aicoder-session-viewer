@@ -16,6 +16,13 @@ const en: Locale = {
   messageCount: (n: number) => `${n} messages`,
   tokenDetail: (input: number, output: number, cacheRead: number, cacheCreation: number) =>
     `Input: ${input.toLocaleString()}${cacheRead ? ` (cache hit: ${cacheRead.toLocaleString()})` : ""}${cacheCreation ? ` (cache write: ${cacheCreation.toLocaleString()})` : ""} | Output: ${output.toLocaleString()}`,
+  sessionSearchPlaceholder: "Search current chat...",
+  sessionSearchCount: (current: number, total: number) => `${current}/${total}`,
+  clearSearch: "Clear search",
+  previousMatch: "Previous match",
+  nextMatch: "Next match",
+  scrollToTop: "Back to top",
+  scrollToBottom: "Jump to bottom",
 
   // 角色
   roleUser: "User",
