@@ -90,11 +90,15 @@ pub fn export_session_markdown(
 }
 
 /// 恢复历史 session（在系统终端中启动对应 AI 工具并 resume）
+///
+/// `bypass_permissions = true` 时启动 YOLO 模式：跳过工具的权限确认提示。
+/// OpenCode 暂不支持 bypass 开关，会被静默降级为普通启动。
 #[tauri::command]
 pub fn resume_session(
     tool: String,
     session_id: String,
     project_path: Option<String>,
+    bypass_permissions: bool,
 ) -> AppResult<()> {
     let tool_kind = ToolKind::from_str_loose(&tool)
         .ok_or_else(|| AppError::Provider(format!("未知工具类型: {}", tool)))?;
@@ -103,7 +107,7 @@ pub fn resume_session(
         tool_kind,
         &session_id,
         None,
-        ResumeLaunchMode::Interactive { bypass_permissions: false },
+        ResumeLaunchMode::Interactive { bypass_permissions },
     )?;
 
     let cwd = project_path.unwrap_or_else(|| ".".to_string());
