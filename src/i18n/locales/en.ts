@@ -61,6 +61,13 @@ const en: Locale = {
     `Wait until ${time} (including a 5-minute safety buffer), then resume the session and send continue; supported CLIs automatically enable unattended approval mode`,
   autoContinueError: (err: string) => `Auto continue failed: ${err}`,
 
+  // YOLO mode
+  yoloMode: "YOLO mode",
+  yoloResumeMenuItem: "Resume in YOLO mode",
+  yoloNewSessionMenuItem: "Open new YOLO session",
+  yoloAltHint: "Hold ⌥ for YOLO mode",
+  yoloUnsupportedOpenCode: "OpenCode does not support YOLO mode yet",
+
   // 项目视图
   viewFlat: "List View",
   viewGrouped: "Project View",

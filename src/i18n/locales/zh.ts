@@ -57,6 +57,13 @@ export interface Locale {
   autoContinueTooltip: (time: string) => string;
   autoContinueError: (err: string) => string;
 
+  // YOLO 模式
+  yoloMode: string;
+  yoloResumeMenuItem: string;
+  yoloNewSessionMenuItem: string;
+  yoloAltHint: string;
+  yoloUnsupportedOpenCode: string;
+
   // 项目视图
   viewFlat: string;
   viewGrouped: string;
@@ -112,6 +119,13 @@ const zh: Locale = {
   autoContinueTooltip: (time) =>
     `等待到 ${time}（含 5 分钟缓冲）后，再恢复会话并发送 continue；支持的 CLI 会自动启用无人值守权限模式`,
   autoContinueError: (err) => `定时继续失败: ${err}`,
+
+  // YOLO 模式
+  yoloMode: "YOLO 模式",
+  yoloResumeMenuItem: "以 YOLO 模式恢复会话",
+  yoloNewSessionMenuItem: "以 YOLO 模式新建",
+  yoloAltHint: "按住 ⌥ 切换到 YOLO 模式",
+  yoloUnsupportedOpenCode: "OpenCode 暂不支持 YOLO 模式",
 
   // 项目视图
   viewFlat: "列表视图",
