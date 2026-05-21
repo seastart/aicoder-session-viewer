@@ -19,6 +19,8 @@ import {
   type ProjectNode,
 } from "../../utils/buildProjectTree";
 import type { Locale as DateLocale } from "date-fns/locale";
+import { useAltKeyPressed } from "../../hooks/useAltKeyPressed";
+import { YoloHint } from "../common/YoloHint";
 
 export function ProjectTree() {
   const { sessions, currentSession, selectSession, loading, expandedPaths, togglePathExpanded } =
@@ -90,6 +92,7 @@ function ProjectFolder({
 }) {
   const hasContent = node.sessions.length > 0 || node.children.length > 0;
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
+  const altPressed = useAltKeyPressed();
 
   // 点击外部关闭菜单
   useEffect(() => {
@@ -99,13 +102,22 @@ function ProjectFolder({
     return () => document.removeEventListener("click", close);
   }, [toolMenuOpen]);
 
-  const handleNewSession = async (tool: ToolKind) => {
+  /**
+   * 启动新 session；bypass=true 时以 YOLO 模式启动。
+   * OpenCode 暂不支持 bypass，调用方需要先判断 yoloSupported。
+   */
+  const handleNewSession = async (
+    tool: ToolKind,
+    opts: { bypass: boolean } = { bypass: false },
+  ) => {
     if (!node.path) return;
     setToolMenuOpen(false);
+    const effectiveBypass = opts.bypass && tool !== "open_code";
     try {
       await invoke("open_new_session", {
         tool,
         projectPath: node.path,
+        bypassPermissions: effectiveBypass,
       });
     } catch (err) {
       console.error("Failed to open new session:", err);
@@ -169,17 +181,34 @@ function ProjectFolder({
               >
                 {(Object.keys(TOOL_CONFIG) as ToolKind[]).map((tool) => {
                   const cfg = TOOL_CONFIG[tool];
+                  const yoloSupported = tool !== "open_code";
+                  const showYoloBadge = altPressed && yoloSupported;
                   return (
                     <button
                       key={tool}
-                      onClick={() => handleNewSession(tool)}
+                      onClick={(e) =>
+                        handleNewSession(tool, { bypass: e.altKey && yoloSupported })
+                      }
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (yoloSupported) {
+                          handleNewSession(tool, { bypass: true });
+                        }
+                      }}
                       className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-surface-hover transition-colors"
+                      title={
+                        yoloSupported
+                          ? `${cfg.label} · ${t.yoloAltHint}`
+                          : t.yoloUnsupportedOpenCode
+                      }
                     >
                       <span
                         className="inline-block h-2 w-2 rounded-full"
                         style={{ backgroundColor: cfg.color }}
                       />
                       <span className="text-text-primary">{cfg.label}</span>
+                      {showYoloBadge && <YoloHint className="ml-auto" />}
                     </button>
                   );
                 })}
