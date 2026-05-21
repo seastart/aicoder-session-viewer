@@ -99,8 +99,12 @@ pub fn resume_session(
     let tool_kind = ToolKind::from_str_loose(&tool)
         .ok_or_else(|| AppError::Provider(format!("未知工具类型: {}", tool)))?;
 
-    let command =
-        build_resume_command(tool_kind, &session_id, None, ResumeLaunchMode::Interactive)?;
+    let command = build_resume_command(
+        tool_kind,
+        &session_id,
+        None,
+        ResumeLaunchMode::Interactive { bypass_permissions: false },
+    )?;
 
     let cwd = project_path.unwrap_or_else(|| ".".to_string());
     launch_in_terminal(&cwd, &command)
@@ -184,13 +188,18 @@ fn launch_in_terminal(cwd: &str, command: &str) -> AppResult<()> {
 /// 分别维护两套分支。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ResumeLaunchMode {
-    Interactive,
+    /// 普通交互式恢复；`bypass_permissions = true` 表示以 YOLO 模式启动
+    Interactive { bypass_permissions: bool },
+    /// 定时自动 continue 路径，隐含必须 bypass（无人值守）
     ScheduledAutoContinue,
 }
 
 impl ResumeLaunchMode {
     fn needs_unattended_permissions(self) -> bool {
-        matches!(self, Self::ScheduledAutoContinue)
+        matches!(
+            self,
+            Self::ScheduledAutoContinue | Self::Interactive { bypass_permissions: true }
+        )
     }
 }
 
