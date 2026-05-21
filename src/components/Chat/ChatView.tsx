@@ -33,6 +33,8 @@ import {
   findSessionSearchMatches,
   isSessionSearchShortcut,
 } from "../../utils/sessionSearch";
+import { useAltKeyPressed } from "../../hooks/useAltKeyPressed";
+import { YoloHint } from "../common/YoloHint";
 
 const SCHEDULED_CONTINUE_BUFFER_MS = 5 * 60 * 1000;
 
@@ -43,8 +45,10 @@ export function ChatView() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const messageRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [exportOpen, setExportOpen] = useState(false);
+  const [resumeMenuOpen, setResumeMenuOpen] = useState(false);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const altPressed = useAltKeyPressed();
   const sessionMessages = currentSession?.messages ?? [];
   const currentSessionId = currentSession?.summary.id;
   const searchMatches = useMemo(
@@ -105,6 +109,14 @@ export function ChatView() {
     return () => document.removeEventListener("click", handleClick);
   }, [exportOpen]);
 
+  // 点击外部关闭右键恢复菜单
+  useEffect(() => {
+    if (!resumeMenuOpen) return;
+    const close = () => setResumeMenuOpen(false);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [resumeMenuOpen]);
+
   if (!currentSession) {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
@@ -119,6 +131,9 @@ export function ChatView() {
   const { summary, messages } = currentSession;
   const config = TOOL_CONFIG[summary.tool];
 
+  // OpenCode 暂不支持 bypass 开关，UI 上需要做友好降级
+  const yoloSupported = summary.tool !== "open_code";
+
   // 汇总 session 级别的 token 用量
   const totalUsage = aggregateTokenUsage(messages);
   const autoContinueAt = inferAutoContinueTime(messages);
@@ -130,13 +145,16 @@ export function ChatView() {
           locale: dateLocale,
         });
 
-  /** 恢复会话 */
-  const handleResume = async () => {
+  /** 恢复会话；bypass=true 时以 YOLO 模式启动 */
+  const handleResume = async (opts: { bypass: boolean } = { bypass: false }) => {
+    // OpenCode 不支持 bypass：即使用户按了 Alt 也只能按普通模式启动
+    const effectiveBypass = opts.bypass && yoloSupported;
     try {
       await invoke("resume_session", {
         tool: summary.tool,
         sessionId: summary.id,
         projectPath: summary.project_path,
+        bypassPermissions: effectiveBypass,
       });
     } catch (err) {
       console.error("Resume failed:", err);
@@ -244,16 +262,44 @@ export function ChatView() {
           {/* 操作按钮区域 */}
           <div className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap">
             {/* 恢复会话按钮 */}
-            <button
-              onClick={handleResume}
-              className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
-              title={t.resumeSession}
-            >
-              <Play size={12} />
-              <span className="hidden whitespace-nowrap md:inline">
-                {t.resumeSession}
-              </span>
-            </button>
+            <div className="relative shrink-0">
+              <button
+                onClick={(e) => handleResume({ bypass: e.altKey })}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setResumeMenuOpen((open) => !open);
+                }}
+                className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+                title={yoloSupported ? `${t.resumeSession} · ${t.yoloAltHint}` : t.resumeSession}
+              >
+                <Play size={12} />
+                <span className="hidden whitespace-nowrap md:inline">
+                  {t.resumeSession}
+                </span>
+                {altPressed && yoloSupported && <YoloHint />}
+              </button>
+
+              {resumeMenuOpen && (
+                <div
+                  className="absolute right-0 top-full mt-1 z-20 w-48 rounded-md border border-border bg-surface shadow-lg"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => {
+                      setResumeMenuOpen(false);
+                      if (yoloSupported) handleResume({ bypass: true });
+                    }}
+                    disabled={!yoloSupported}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-primary hover:bg-surface-hover transition-colors disabled:cursor-not-allowed disabled:text-text-muted disabled:hover:bg-transparent"
+                    title={yoloSupported ? undefined : t.yoloUnsupportedOpenCode}
+                  >
+                    <Zap size={12} />
+                    {t.yoloResumeMenuItem}
+                  </button>
+                </div>
+              )}
+            </div>
 
             {showScheduledContinue && (
               <button
