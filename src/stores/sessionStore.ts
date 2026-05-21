@@ -1,6 +1,14 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import type { Session, SessionSummary, ToolKind } from "../types";
+import type {
+  ProviderConfig,
+  ProviderConfigResponse,
+  ProviderPaths,
+  Session,
+  SessionSummary,
+  ToolKind,
+  UpdateProviderConfigResponse,
+} from "../types";
 
 /** 视图模式：扁平列表 或 按项目分组 */
 export type ViewMode = "flat" | "grouped";
@@ -20,6 +28,10 @@ interface SessionState {
   viewMode: ViewMode;
   expandedPaths: Set<string>;
 
+  // Provider 路径配置
+  providerConfig: ProviderConfig | null;
+  providerDefaults: ProviderPaths | null;
+
   // 操作
   fetchSessions: () => Promise<void>;
   selectSession: (tool: ToolKind, sessionId: string) => Promise<void>;
@@ -28,6 +40,8 @@ interface SessionState {
   searchSessions: (query: string, tool?: ToolKind | null) => Promise<void>;
   setViewMode: (mode: ViewMode) => void;
   togglePathExpanded: (path: string) => void;
+  loadProviderConfig: () => Promise<void>;
+  saveProviderConfig: (config: ProviderConfig) => Promise<string[]>;
 }
 
 // 递增的请求 ID，用于防止异步竞态（旧请求的结果覆盖新请求）
@@ -42,6 +56,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   searchQuery: "",
   viewMode: "grouped",
   expandedPaths: new Set<string>(),
+  providerConfig: null,
+  providerDefaults: null,
 
   fetchSessions: async () => {
     const requestId = ++fetchRequestId;
@@ -120,5 +136,28 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
       return { expandedPaths: next };
     });
+  },
+
+  loadProviderConfig: async () => {
+    try {
+      const resp: ProviderConfigResponse = await invoke("get_provider_config");
+      set({
+        providerConfig: resp.config,
+        providerDefaults: resp.defaults,
+      });
+    } catch (e) {
+      console.error("[store] loadProviderConfig 失败:", e);
+    }
+  },
+
+  saveProviderConfig: async (config) => {
+    const resp: UpdateProviderConfigResponse = await invoke(
+      "update_provider_config",
+      { config }
+    );
+    // 保存成功后立即刷新本地副本 + session 列表
+    set({ providerConfig: config });
+    await get().fetchSessions();
+    return resp.warnings;
   },
 }));
