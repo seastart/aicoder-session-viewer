@@ -21,14 +21,23 @@ use crate::providers::SessionProvider;
 /// - `tokens`: {input, output, cached, thoughts, tool, total}
 /// - `timestamp`: ISO 8601 时间戳
 pub struct GeminiProvider {
-    base_dir: PathBuf,
+    pub(crate) base_dir: PathBuf,
 }
 
 impl GeminiProvider {
-    pub fn new() -> AppResult<Self> {
+    /// 返回默认的 ~/.gemini 路径
+    pub fn default_path() -> AppResult<PathBuf> {
         let home = dirs::home_dir()
             .ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
-        let base_dir = home.join(".gemini");
+        Ok(home.join(".gemini"))
+    }
+
+    /// 创建 provider；`path_override` 为 None 时走默认路径
+    pub fn new(path_override: Option<PathBuf>) -> AppResult<Self> {
+        let base_dir = match path_override {
+            Some(p) => p,
+            None => Self::default_path()?,
+        };
         if !base_dir.exists() {
             return Err(AppError::Provider(format!(
                 "directory not found: {}",
@@ -489,5 +498,30 @@ impl SessionProvider for GeminiProvider {
                         .is_some_and(|p| p.to_lowercase().contains(&query_lower))
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_path_points_to_home_gemini() {
+        let p = GeminiProvider::default_path().unwrap();
+        assert!(p.ends_with(".gemini"));
+    }
+
+    #[test]
+    fn new_with_override_uses_passed_path() {
+        // 用一个临时存在的目录（系统临时目录一定存在）
+        let tmp = std::env::temp_dir();
+        let p = GeminiProvider::new(Some(tmp.clone())).unwrap();
+        assert_eq!(p.base_dir, tmp);
+    }
+
+    #[test]
+    fn new_with_nonexistent_path_fails() {
+        let bogus = std::path::PathBuf::from("/nonexistent/path/xyz123");
+        assert!(GeminiProvider::new(Some(bogus)).is_err());
     }
 }

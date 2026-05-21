@@ -36,18 +36,19 @@ impl ProviderRegistry {
 
         // 逐个尝试初始化，失败不影响其他
         // Claude Code 需要两份实例：一份作为通用 provider，一份专用于 subagent 查询
-        if let Ok(p) = claude::ClaudeCodeProvider::new() {
+        // 注：当前传 None 走默认路径，后续 Task 会接入用户配置
+        if let Ok(p) = claude::ClaudeCodeProvider::new(None) {
             providers.push(Box::new(p));
             // 再创建一份用于 subagent
-            claude_provider = claude::ClaudeCodeProvider::new().ok();
+            claude_provider = claude::ClaudeCodeProvider::new(None).ok();
         }
-        if let Ok(p) = codex::CodexProvider::new() {
+        if let Ok(p) = codex::CodexProvider::new(None) {
             providers.push(Box::new(p));
         }
-        if let Ok(p) = gemini::GeminiProvider::new() {
+        if let Ok(p) = gemini::GeminiProvider::new(None) {
             providers.push(Box::new(p));
         }
-        if let Ok(p) = opencode::OpenCodeProvider::new() {
+        if let Ok(p) = opencode::OpenCodeProvider::new(None) {
             providers.push(Box::new(p));
         }
 

@@ -16,14 +16,23 @@ use crate::providers::SessionProvider;
 /// - message: id, session_id, data (JSON: {role, time, modelID, providerID, ...})
 /// - part: id, message_id, data (JSON: {type, text, ...})
 pub struct OpenCodeProvider {
-    db_path: PathBuf,
+    pub(crate) db_path: PathBuf,
 }
 
 impl OpenCodeProvider {
-    pub fn new() -> AppResult<Self> {
+    /// 返回默认的 opencode.db 路径
+    pub fn default_path() -> AppResult<PathBuf> {
         let home = dirs::home_dir()
             .ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
-        let db_path = home.join(".local/share/opencode/opencode.db");
+        Ok(home.join(".local/share/opencode/opencode.db"))
+    }
+
+    /// 创建 provider；`path_override` 为 None 时走默认 db 路径
+    pub fn new(path_override: Option<PathBuf>) -> AppResult<Self> {
+        let db_path = match path_override {
+            Some(p) => p,
+            None => Self::default_path()?,
+        };
         if !db_path.exists() {
             return Err(AppError::Provider(format!(
                 "database not found: {}",
@@ -358,5 +367,30 @@ impl SessionProvider for OpenCodeProvider {
             .collect();
 
         Ok(summaries)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_path_points_to_opencode_db() {
+        let p = OpenCodeProvider::default_path().unwrap();
+        assert!(p.ends_with("opencode.db"));
+    }
+
+    #[test]
+    fn new_with_override_uses_passed_path() {
+        // 使用 Cargo.toml 这种项目内一定存在的文件作为占位
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let p = OpenCodeProvider::new(Some(manifest.clone())).unwrap();
+        assert_eq!(p.db_path, manifest);
+    }
+
+    #[test]
+    fn new_with_nonexistent_path_fails() {
+        let bogus = std::path::PathBuf::from("/nonexistent/path/xyz123");
+        assert!(OpenCodeProvider::new(Some(bogus)).is_err());
     }
 }

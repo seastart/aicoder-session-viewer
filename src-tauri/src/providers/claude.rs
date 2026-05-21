@@ -17,7 +17,7 @@ use chrono::{DateTime, Utc};
 /// 发现策略：直接扫描 projects 目录下的 JSONL 文件，排除 subagents 子目录
 pub struct ClaudeCodeProvider {
     /// ~/.claude 根目录
-    base_dir: PathBuf,
+    pub(crate) base_dir: PathBuf,
 }
 
 /// 扫描到的 JSONL 文件信息
@@ -31,10 +31,19 @@ struct JsonlFileInfo {
 }
 
 impl ClaudeCodeProvider {
-    pub fn new() -> AppResult<Self> {
+    /// 返回默认的 ~/.claude 路径
+    pub fn default_path() -> AppResult<PathBuf> {
         let home = dirs::home_dir()
             .ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
-        let base_dir = home.join(".claude");
+        Ok(home.join(".claude"))
+    }
+
+    /// 创建 provider；`path_override` 为 None 时走默认路径
+    pub fn new(path_override: Option<PathBuf>) -> AppResult<Self> {
+        let base_dir = match path_override {
+            Some(p) => p,
+            None => Self::default_path()?,
+        };
         if !base_dir.exists() {
             return Err(AppError::Provider(format!(
                 "directory not found: {}",
@@ -574,5 +583,30 @@ impl SessionProvider for ClaudeCodeProvider {
                         .is_some_and(|p| p.to_lowercase().contains(&query_lower))
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_path_points_to_home_claude() {
+        let p = ClaudeCodeProvider::default_path().unwrap();
+        assert!(p.ends_with(".claude"));
+    }
+
+    #[test]
+    fn new_with_override_uses_passed_path() {
+        // 用一个临时存在的目录（系统临时目录一定存在）
+        let tmp = std::env::temp_dir();
+        let p = ClaudeCodeProvider::new(Some(tmp.clone())).unwrap();
+        assert_eq!(p.base_dir, tmp);
+    }
+
+    #[test]
+    fn new_with_nonexistent_path_fails() {
+        let bogus = std::path::PathBuf::from("/nonexistent/path/xyz123");
+        assert!(ClaudeCodeProvider::new(Some(bogus)).is_err());
     }
 }

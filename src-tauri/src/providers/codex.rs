@@ -20,14 +20,23 @@ use crate::providers::SessionProvider;
 /// - type = "response_item" → payload.type 区分 message / function_call / function_call_output
 /// - type = "turn_context"  → 包含 model、cwd 等上下文，可提取 project_path
 pub struct CodexProvider {
-    base_dir: PathBuf,
+    pub(crate) base_dir: PathBuf,
 }
 
 impl CodexProvider {
-    pub fn new() -> AppResult<Self> {
+    /// 返回默认的 ~/.codex 路径
+    pub fn default_path() -> AppResult<PathBuf> {
         let home = dirs::home_dir()
             .ok_or_else(|| AppError::Provider("cannot locate home directory".into()))?;
-        let base_dir = home.join(".codex");
+        Ok(home.join(".codex"))
+    }
+
+    /// 创建 provider；`path_override` 为 None 时走默认路径
+    pub fn new(path_override: Option<PathBuf>) -> AppResult<Self> {
+        let base_dir = match path_override {
+            Some(p) => p,
+            None => Self::default_path()?,
+        };
         if !base_dir.exists() {
             return Err(AppError::Provider(format!(
                 "directory not found: {}",
@@ -709,5 +718,30 @@ impl SessionProvider for CodexProvider {
             .into_iter()
             .filter(|s| s.title.to_lowercase().contains(&query_lower))
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_path_points_to_home_codex() {
+        let p = CodexProvider::default_path().unwrap();
+        assert!(p.ends_with(".codex"));
+    }
+
+    #[test]
+    fn new_with_override_uses_passed_path() {
+        // 用一个临时存在的目录（系统临时目录一定存在）
+        let tmp = std::env::temp_dir();
+        let p = CodexProvider::new(Some(tmp.clone())).unwrap();
+        assert_eq!(p.base_dir, tmp);
+    }
+
+    #[test]
+    fn new_with_nonexistent_path_fails() {
+        let bogus = std::path::PathBuf::from("/nonexistent/path/xyz123");
+        assert!(CodexProvider::new(Some(bogus)).is_err());
     }
 }
