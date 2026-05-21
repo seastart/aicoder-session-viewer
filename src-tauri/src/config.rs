@@ -45,13 +45,23 @@ pub fn load(app: &AppHandle) -> ProviderConfig {
 
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
-        Err(_) => return ProviderConfig::default(),
+        // 文件不存在是首次运行的正常路径，保持静默
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return ProviderConfig::default(),
+        // 其他读取错误（权限、IO 等）记录路径方便排查
+        Err(e) => {
+            eprintln!("[config] 读取配置文件失败 ({}): {}", path.display(), e);
+            return ProviderConfig::default();
+        }
     };
 
     match serde_json::from_str::<ProviderConfig>(&content) {
         Ok(cfg) => cfg,
         Err(e) => {
-            eprintln!("[config] 配置文件 JSON 损坏，使用默认值: {}", e);
+            eprintln!(
+                "[config] 配置文件 JSON 损坏 ({})，使用默认值: {}",
+                path.display(),
+                e
+            );
             ProviderConfig::default()
         }
     }
