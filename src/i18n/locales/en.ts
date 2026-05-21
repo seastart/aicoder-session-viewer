@@ -81,9 +81,7 @@ const en: Locale = {
   settingsSave: "Save",
   settingsCancel: "Cancel",
   settingsDefault: "Default",
-  settingsProviderLabel: (provider: string) => provider,
   settingsPathPlaceholder: "Leave empty to use default",
-  settingsSaved: "Configuration saved",
   settingsProviderWarning: (provider: string, message: string) => `${provider} failed to load: ${message}`,
 };
 

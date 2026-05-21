@@ -106,7 +106,14 @@ export function SettingsDialog({ open, onClose }: Props) {
       const warnings = await saveProviderConfig(config);
       if (warnings.length > 0) {
         // 项目目前没有 toast 系统，沿用 ChatView.autoContinueError 的 alert 风格
-        window.alert(warnings.join("\n"));
+        const formatted = warnings.map((w) => {
+          const idx = w.indexOf(": ");
+          if (idx === -1) return w;  // fallback for unexpected shape
+          const provider = w.slice(0, idx);
+          const message = w.slice(idx + 2);
+          return t.settingsProviderWarning(provider, message);
+        }).join("\n");
+        window.alert(formatted);
       }
       onClose();
     } catch (e) {

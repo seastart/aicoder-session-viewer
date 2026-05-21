@@ -77,9 +77,7 @@ export interface Locale {
   settingsSave: string;
   settingsCancel: string;
   settingsDefault: string;
-  settingsProviderLabel: (provider: string) => string;
   settingsPathPlaceholder: string;
-  settingsSaved: string;
   settingsProviderWarning: (provider: string, message: string) => string;
 }
 
@@ -151,9 +149,7 @@ const zh: Locale = {
   settingsSave: "保存",
   settingsCancel: "取消",
   settingsDefault: "默认",
-  settingsProviderLabel: (provider) => provider,
   settingsPathPlaceholder: "留空使用默认路径",
-  settingsSaved: "配置已保存",
   settingsProviderWarning: (provider, message) => `${provider} 加载失败: ${message}`,
 };
 
