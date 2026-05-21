@@ -49,6 +49,21 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 
 > 四款工具在所有平台上均以用户主目录（`~` / `%USERPROFILE%`）为根目录，目录结构跨平台一致。
 
+## 自定义数据源路径
+
+如果你的工具数据存放在非默认位置（例如基于 OpenCode 衍生的工具，数据库路径不同），可以通过应用内的「设置」对话框（侧边栏齿轮按钮）为每个 provider 覆盖路径。
+
+- 点击标题栏的齿轮图标
+- 为任一 provider 输入或浏览自定义路径；留空则使用默认值
+- 点击「保存」即时生效，无需重启
+- 如果自定义路径无效，该 provider 会被跳过并提示警告
+
+配置文件位置：
+
+- macOS: `~/Library/Application Support/aicoder-session-viewer/config.json`
+- Linux: `~/.config/aicoder-session-viewer/config.json`
+- Windows: `%APPDATA%\aicoder-session-viewer\config.json`
+
 ## 定时继续策略
 
 当 Claude Code、Codex、Gemini CLI 或 OpenCode 出现配额提示，例如 `You've hit your limit · resets 1am (Asia/Shanghai)` 或 `try again at 1:35 PM` 时，支持定时自动继续：

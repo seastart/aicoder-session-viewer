@@ -49,6 +49,21 @@ Download the `.exe` / `.msi` (Windows) or `.deb` / `.AppImage` (Linux) from the 
 
 > All four tools use the user home directory (`~` / `%USERPROFILE%`) as root, with identical directory structures across platforms.
 
+## Custom Data Source Paths
+
+If your tool stores data in a non-default location (e.g., a derivative of OpenCode with a different database path), you can override the path per provider via the in-app **Settings** dialog (gear icon in the sidebar header).
+
+- Click the gear icon in the title bar
+- Enter or browse to a custom path for any provider; leave a field empty to use the default
+- Click **Save** — changes take effect immediately, no app restart required
+- If a custom path is invalid, that provider is silently skipped and a warning is shown
+
+The configuration is persisted at:
+
+- macOS: `~/Library/Application Support/aicoder-session-viewer/config.json`
+- Linux: `~/.config/aicoder-session-viewer/config.json`
+- Windows: `%APPDATA%\aicoder-session-viewer\config.json`
+
 ## Scheduled Continue Strategy
 
 When Claude Code, Codex, Gemini CLI, or OpenCode shows a quota message such as `You've hit your limit · resets 1am (Asia/Shanghai)` or `try again at 1:35 PM`, support scheduled continue strategy:
