@@ -142,18 +142,18 @@ pub fn resume_session_with_auto_continue(
 }
 
 /// 在指定项目目录中打开新 session
+///
+/// `bypass_permissions = true` 时启动 YOLO 模式。OpenCode 会被静默降级。
 #[tauri::command]
-pub fn open_new_session(tool: String, project_path: String) -> AppResult<()> {
+pub fn open_new_session(
+    tool: String,
+    project_path: String,
+    bypass_permissions: bool,
+) -> AppResult<()> {
     let tool_kind = ToolKind::from_str_loose(&tool)
         .ok_or_else(|| AppError::Provider(format!("未知工具类型: {}", tool)))?;
 
-    let command = match tool_kind {
-        ToolKind::ClaudeCode => "claude".to_string(),
-        ToolKind::Codex => "codex".to_string(),
-        ToolKind::Gemini => "gemini".to_string(),
-        ToolKind::OpenCode => "opencode".to_string(),
-    };
-
+    let command = build_new_session_command(tool_kind, bypass_permissions);
     launch_in_terminal(&project_path, &command)
 }
 
@@ -259,6 +259,8 @@ fn build_resume_command(
             }
             command
         }
+        // TODO(opencode-yolo): OpenCode CLI 暂无 bypass-approvals 开关，
+        // 待上游加入后，需要在这里同时根据 `launch_mode.needs_unattended_permissions()` 拼接。
         ToolKind::OpenCode => {
             let mut command = format!("opencode --session {}", shell_escape(session_id));
             if let Some(prompt) = prompt {
@@ -270,6 +272,41 @@ fn build_resume_command(
     };
 
     Ok(command)
+}
+
+/// 构建 "新建 session" 的 CLI 启动命令。
+///
+/// 与 `build_resume_command` 对称，但不带 `--resume` 与 `prompt`：仅决定是否拼接 bypass 参数。
+/// OpenCode 目前没有 bypass 开关，`bypass_permissions = true` 时会被静默忽略。
+fn build_new_session_command(tool_kind: ToolKind, bypass_permissions: bool) -> String {
+    match tool_kind {
+        ToolKind::ClaudeCode => {
+            if bypass_permissions {
+                format!("claude --permission-mode {}", shell_escape("bypassPermissions"))
+            } else {
+                "claude".to_string()
+            }
+        }
+        ToolKind::Codex => {
+            if bypass_permissions {
+                // 官方 CLI 文档要求：带子命令时全局参数写在子命令后面。
+                // 新建 session 没有子命令，直接放主命令后即可。
+                "codex --dangerously-bypass-approvals-and-sandbox".to_string()
+            } else {
+                "codex".to_string()
+            }
+        }
+        ToolKind::Gemini => {
+            if bypass_permissions {
+                format!("gemini --approval-mode {}", shell_escape("yolo"))
+            } else {
+                "gemini".to_string()
+            }
+        }
+        // TODO(opencode-yolo): OpenCode CLI 暂无 bypass-approvals 开关，
+        // 待上游加入后在此分支补上对应参数。
+        ToolKind::OpenCode => "opencode".to_string(),
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
