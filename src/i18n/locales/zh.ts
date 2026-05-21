@@ -68,6 +68,19 @@ export interface Locale {
   newSession: string;
   ungrouped: string;
   sessionCount: (n: number) => string;
+
+  // 设置
+  settingsTitle: string;
+  settingsProviderPaths: string;
+  settingsBrowse: string;
+  settingsReset: string;
+  settingsSave: string;
+  settingsCancel: string;
+  settingsDefault: string;
+  settingsProviderLabel: (provider: string) => string;
+  settingsPathPlaceholder: string;
+  settingsSaved: string;
+  settingsProviderWarning: (provider: string, message: string) => string;
 }
 
 /** 中文翻译 */
@@ -129,6 +142,19 @@ const zh: Locale = {
   newSession: "新建会话",
   ungrouped: "未分类",
   sessionCount: (n) => `${n} 个会话`,
+
+  // 设置
+  settingsTitle: "设置",
+  settingsProviderPaths: "数据源路径",
+  settingsBrowse: "浏览…",
+  settingsReset: "重置",
+  settingsSave: "保存",
+  settingsCancel: "取消",
+  settingsDefault: "默认",
+  settingsProviderLabel: (provider) => provider,
+  settingsPathPlaceholder: "留空使用默认路径",
+  settingsSaved: "配置已保存",
+  settingsProviderWarning: (provider, message) => `${provider} 加载失败: ${message}`,
 };
 
 export default zh;

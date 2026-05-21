@@ -72,6 +72,19 @@ const en: Locale = {
   newSession: "New Session",
   ungrouped: "Ungrouped",
   sessionCount: (n: number) => `${n} sessions`,
+
+  // Settings
+  settingsTitle: "Settings",
+  settingsProviderPaths: "Data Source Paths",
+  settingsBrowse: "Browse…",
+  settingsReset: "Reset",
+  settingsSave: "Save",
+  settingsCancel: "Cancel",
+  settingsDefault: "Default",
+  settingsProviderLabel: (provider: string) => provider,
+  settingsPathPlaceholder: "Leave empty to use default",
+  settingsSaved: "Configuration saved",
+  settingsProviderWarning: (provider: string, message: string) => `${provider} failed to load: ${message}`,
 };
 
 export default en;
