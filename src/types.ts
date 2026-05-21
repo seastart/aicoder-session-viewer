@@ -62,3 +62,27 @@ export const TOOL_CONFIG: Record<
   gemini: { label: "Gemini", color: "#8b9cf7", bgColor: "#252547" },
   open_code: { label: "OpenCode", color: "#a6e3a1", bgColor: "#1f3d2e" },
 };
+
+/** 各 provider 的可选路径覆盖；null = 走 provider 内置默认 */
+export interface ProviderPaths {
+  claudeCode: string | null;
+  codex: string | null;
+  gemini: string | null;
+  opencode: string | null;
+}
+
+/** 应用配置（持久化到 JSON） */
+export interface ProviderConfig {
+  providerPaths: ProviderPaths;
+}
+
+/** get_provider_config 返回值 */
+export interface ProviderConfigResponse {
+  config: ProviderConfig;
+  defaults: ProviderPaths; // 每个字段都应为非 null（来自 default_path()）
+}
+
+/** update_provider_config 返回值 */
+export interface UpdateProviderConfigResponse {
+  warnings: string[];
+}
