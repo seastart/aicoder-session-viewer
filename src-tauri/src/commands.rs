@@ -1,5 +1,6 @@
 use chrono::TimeZone;
 use std::process::Command as StdCommand;
+use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
@@ -9,19 +10,23 @@ use crate::providers::ProviderRegistry;
 
 /// 列出所有工具的 session
 #[tauri::command]
-pub fn list_all_sessions(registry: State<ProviderRegistry>) -> AppResult<Vec<SessionSummary>> {
-    registry.list_all_sessions()
+pub fn list_all_sessions(
+    registry: State<Arc<RwLock<ProviderRegistry>>>,
+) -> AppResult<Vec<SessionSummary>> {
+    // RwLock::read 仅在锁被毒化（持锁线程 panic 过）时才会失败；
+    // 这种情况下整个进程已不可靠，让它直接 panic 即可。
+    registry.read().unwrap().list_all_sessions()
 }
 
 /// 列出指定工具的 session
 #[tauri::command]
 pub fn list_sessions(
     tool: String,
-    registry: State<ProviderRegistry>,
+    registry: State<Arc<RwLock<ProviderRegistry>>>,
 ) -> AppResult<Vec<SessionSummary>> {
     let tool_kind = ToolKind::from_str_loose(&tool)
         .ok_or_else(|| crate::error::AppError::Provider(format!("未知工具类型: {}", tool)))?;
-    registry.list_sessions_by_tool(tool_kind)
+    registry.read().unwrap().list_sessions_by_tool(tool_kind)
 }
 
 /// 获取完整 session（含所有消息）
@@ -29,11 +34,11 @@ pub fn list_sessions(
 pub fn get_session(
     tool: String,
     session_id: String,
-    registry: State<ProviderRegistry>,
+    registry: State<Arc<RwLock<ProviderRegistry>>>,
 ) -> AppResult<Session> {
     let tool_kind = ToolKind::from_str_loose(&tool)
         .ok_or_else(|| crate::error::AppError::Provider(format!("未知工具类型: {}", tool)))?;
-    registry.get_session(tool_kind, &session_id)
+    registry.read().unwrap().get_session(tool_kind, &session_id)
 }
 
 /// 获取 Claude Code subagent 的对话消息（懒加载）
@@ -41,9 +46,12 @@ pub fn get_session(
 pub fn get_subagent_messages(
     session_id: String,
     agent_id: String,
-    registry: State<ProviderRegistry>,
+    registry: State<Arc<RwLock<ProviderRegistry>>>,
 ) -> AppResult<Vec<Message>> {
-    registry.get_subagent_messages(&session_id, &agent_id)
+    registry
+        .read()
+        .unwrap()
+        .get_subagent_messages(&session_id, &agent_id)
 }
 
 /// 搜索 session
@@ -51,10 +59,10 @@ pub fn get_subagent_messages(
 pub fn search_sessions(
     query: String,
     tool: Option<String>,
-    registry: State<ProviderRegistry>,
+    registry: State<Arc<RwLock<ProviderRegistry>>>,
 ) -> AppResult<Vec<SessionSummary>> {
     let tool_kind = tool.and_then(|t| ToolKind::from_str_loose(&t));
-    registry.search_sessions(&query, tool_kind)
+    registry.read().unwrap().search_sessions(&query, tool_kind)
 }
 
 /// 导出 session 为 JSONL 格式
@@ -63,11 +71,11 @@ pub fn export_session_jsonl(
     tool: String,
     session_id: String,
     save_path: String,
-    registry: State<ProviderRegistry>,
+    registry: State<Arc<RwLock<ProviderRegistry>>>,
 ) -> AppResult<()> {
     let tool_kind = ToolKind::from_str_loose(&tool)
         .ok_or_else(|| AppError::Provider(format!("未知工具类型: {}", tool)))?;
-    let session = registry.get_session(tool_kind, &session_id)?;
+    let session = registry.read().unwrap().get_session(tool_kind, &session_id)?;
     let content = crate::export::to_jsonl(&session);
     std::fs::write(&save_path, content)?;
     Ok(())
@@ -79,11 +87,11 @@ pub fn export_session_markdown(
     tool: String,
     session_id: String,
     save_path: String,
-    registry: State<ProviderRegistry>,
+    registry: State<Arc<RwLock<ProviderRegistry>>>,
 ) -> AppResult<()> {
     let tool_kind = ToolKind::from_str_loose(&tool)
         .ok_or_else(|| AppError::Provider(format!("未知工具类型: {}", tool)))?;
-    let session = registry.get_session(tool_kind, &session_id)?;
+    let session = registry.read().unwrap().get_session(tool_kind, &session_id)?;
     let content = crate::export::to_markdown(&session);
     std::fs::write(&save_path, content)?;
     Ok(())

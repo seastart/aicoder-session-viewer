@@ -5,17 +5,24 @@ mod export;
 mod models;
 mod providers;
 
+use std::sync::{Arc, RwLock};
+use tauri::Manager;
+
 use providers::ProviderRegistry;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 临时使用默认路径，Task 4 会替换为读取 config::load 的结果
-    let registry = ProviderRegistry::new(&crate::config::ProviderPaths::default());
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(registry)
+        .setup(|app| {
+            // 启动时读配置 + 初始化 registry（先读，再 manage）
+            // 用 Arc<RwLock<...>> 包装，让后续运行时也能重新加载（Task 5）
+            let cfg = config::load(app.handle());
+            let registry = ProviderRegistry::new(&cfg.provider_paths);
+            app.manage(Arc::new(RwLock::new(registry)));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_all_sessions,
             commands::list_sessions,
@@ -27,6 +34,8 @@ pub fn run() {
             commands::resume_session,
             commands::resume_session_with_auto_continue,
             commands::open_new_session,
+            // commands::get_provider_config,         // Task 5
+            // commands::update_provider_config,      // Task 5
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
