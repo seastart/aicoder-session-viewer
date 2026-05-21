@@ -9,7 +9,8 @@ use providers::ProviderRegistry;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let registry = ProviderRegistry::new();
+    // 临时使用默认路径，Task 4 会替换为读取 config::load 的结果
+    let registry = ProviderRegistry::new(&crate::config::ProviderPaths::default());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
