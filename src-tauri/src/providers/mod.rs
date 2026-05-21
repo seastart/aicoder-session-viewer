@@ -188,3 +188,29 @@ impl<T: SessionProvider + ?Sized> ToolKindLabel for T {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::ProviderPaths;
+
+    /// 给定全部 provider 都是不存在的路径时，reload 应当为每个 provider
+    /// 各产生一条 warning，且前缀与显示名一致。
+    /// 这条测试守住「失败信息能上报给前端」这条核心契约。
+    #[test]
+    fn reload_with_bad_paths_returns_warnings() {
+        let mut reg = ProviderRegistry::new(&ProviderPaths::default());
+        let bad = ProviderPaths {
+            claude_code: Some(std::path::PathBuf::from("/nonexistent/xyz1")),
+            codex: Some(std::path::PathBuf::from("/nonexistent/xyz2")),
+            gemini: Some(std::path::PathBuf::from("/nonexistent/xyz3")),
+            opencode: Some(std::path::PathBuf::from("/nonexistent/xyz4")),
+        };
+        let warnings = reg.reload(&bad);
+        assert_eq!(warnings.len(), 4);
+        assert!(warnings.iter().any(|w| w.starts_with("Claude Code:")));
+        assert!(warnings.iter().any(|w| w.starts_with("Codex:")));
+        assert!(warnings.iter().any(|w| w.starts_with("Gemini:")));
+        assert!(warnings.iter().any(|w| w.starts_with("OpenCode:")));
+    }
+}

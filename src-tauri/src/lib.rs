@@ -34,8 +34,8 @@ pub fn run() {
             commands::resume_session,
             commands::resume_session_with_auto_continue,
             commands::open_new_session,
-            // commands::get_provider_config,         // Task 5
-            // commands::update_provider_config,      // Task 5
+            commands::get_provider_config,
+            commands::update_provider_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

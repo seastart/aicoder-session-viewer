@@ -2,11 +2,12 @@ use chrono::TimeZone;
 use std::process::Command as StdCommand;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::State;
+use tauri::{AppHandle, State};
 
+use crate::config::{self, ProviderConfig, ProviderPaths};
 use crate::error::{AppError, AppResult};
 use crate::models::{Message, Session, SessionSummary, ToolKind};
-use crate::providers::ProviderRegistry;
+use crate::providers::{claude, codex, gemini, opencode, ProviderRegistry};
 
 /// 列出所有工具的 session
 #[tauri::command]
@@ -654,6 +655,60 @@ fn extract_codex_uuid(session_id: &str) -> String {
     }
     // 无法提取时原样返回
     session_id.to_string()
+}
+
+// ── 配置读写 IPC ────────────────────────────────────────────
+
+/// 前端获取当前配置 + 各 provider 的默认路径预览
+///
+/// `defaults` 用于前端在“路径输入框”里展示占位提示：
+/// 用户不填时，后端会用这些默认路径。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderConfigResponse {
+    config: ProviderConfig,
+    defaults: ProviderPaths,
+}
+
+#[tauri::command]
+pub fn get_provider_config(app: AppHandle) -> AppResult<ProviderConfigResponse> {
+    let cfg = config::load(&app);
+    // default_path 失败说明该平台/环境下连默认路径都拿不到（例如 HOME 未设置），
+    // 这种情况展示为 None，让前端把输入框留空并提示用户手动配置即可。
+    let defaults = ProviderPaths {
+        claude_code: claude::ClaudeCodeProvider::default_path().ok(),
+        codex: codex::CodexProvider::default_path().ok(),
+        gemini: gemini::GeminiProvider::default_path().ok(),
+        opencode: opencode::OpenCodeProvider::default_path().ok(),
+    };
+    Ok(ProviderConfigResponse {
+        config: cfg,
+        defaults,
+    })
+}
+
+/// 前端保存配置并触发 registry 热重载
+///
+/// 返回的 warnings 包含初始化失败的 provider（例如路径不存在），
+/// 前端据此提示用户，但不阻塞保存流程。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProviderConfigResponse {
+    warnings: Vec<String>,
+}
+
+#[tauri::command]
+pub fn update_provider_config(
+    app: AppHandle,
+    registry: State<Arc<RwLock<ProviderRegistry>>>,
+    config: ProviderConfig,
+) -> AppResult<UpdateProviderConfigResponse> {
+    // 1. 先写文件；失败直接返回，不动内存状态，避免“磁盘和内存不一致”
+    config::save(&app, &config)?;
+    // 2. 热重载 registry；收集 warnings
+    //    write 锁仅在毒化时失败，让其 panic 即可，与其他命令保持一致
+    let warnings = registry.write().unwrap().reload(&config.provider_paths);
+    Ok(UpdateProviderConfigResponse { warnings })
 }
 
 #[cfg(test)]
