@@ -21,7 +21,7 @@ use crate::providers::SessionProvider;
 /// - `tokens`: {input, output, cached, thoughts, tool, total}
 /// - `timestamp`: ISO 8601 时间戳
 pub struct GeminiProvider {
-    pub(crate) base_dir: PathBuf,
+    base_dir: PathBuf,
 }
 
 impl GeminiProvider {

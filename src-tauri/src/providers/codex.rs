@@ -20,7 +20,7 @@ use crate::providers::SessionProvider;
 /// - type = "response_item" → payload.type 区分 message / function_call / function_call_output
 /// - type = "turn_context"  → 包含 model、cwd 等上下文，可提取 project_path
 pub struct CodexProvider {
-    pub(crate) base_dir: PathBuf,
+    base_dir: PathBuf,
 }
 
 impl CodexProvider {

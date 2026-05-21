@@ -17,7 +17,7 @@ use chrono::{DateTime, Utc};
 /// 发现策略：直接扫描 projects 目录下的 JSONL 文件，排除 subagents 子目录
 pub struct ClaudeCodeProvider {
     /// ~/.claude 根目录
-    pub(crate) base_dir: PathBuf,
+    base_dir: PathBuf,
 }
 
 /// 扫描到的 JSONL 文件信息

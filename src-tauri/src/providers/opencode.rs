@@ -16,7 +16,7 @@ use crate::providers::SessionProvider;
 /// - message: id, session_id, data (JSON: {role, time, modelID, providerID, ...})
 /// - part: id, message_id, data (JSON: {type, text, ...})
 pub struct OpenCodeProvider {
-    pub(crate) db_path: PathBuf,
+    db_path: PathBuf,
 }
 
 impl OpenCodeProvider {
