@@ -58,9 +58,7 @@ export interface Locale {
   autoContinueError: (err: string) => string;
 
   // YOLO 模式
-  yoloMode: string;
   yoloResumeMenuItem: string;
-  yoloNewSessionMenuItem: string;
   yoloAltHint: string;
   yoloUnsupportedOpenCode: string;
 
@@ -121,9 +119,7 @@ const zh: Locale = {
   autoContinueError: (err) => `定时继续失败: ${err}`,
 
   // YOLO 模式
-  yoloMode: "YOLO 模式",
   yoloResumeMenuItem: "以 YOLO 模式恢复会话",
-  yoloNewSessionMenuItem: "以 YOLO 模式新建",
   yoloAltHint: "按住 ⌥ 切换到 YOLO 模式",
   yoloUnsupportedOpenCode: "OpenCode 暂不支持 YOLO 模式",
 

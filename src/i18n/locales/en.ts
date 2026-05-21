@@ -62,9 +62,7 @@ const en: Locale = {
   autoContinueError: (err: string) => `Auto continue failed: ${err}`,
 
   // YOLO mode
-  yoloMode: "YOLO mode",
   yoloResumeMenuItem: "Resume in YOLO mode",
-  yoloNewSessionMenuItem: "Open new YOLO session",
   yoloAltHint: "Hold ⌥ for YOLO mode",
   yoloUnsupportedOpenCode: "OpenCode does not support YOLO mode yet",
 
