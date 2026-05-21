@@ -1,4 +1,5 @@
 mod commands;
+mod config;
 mod error;
 mod export;
 mod models;
