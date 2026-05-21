@@ -39,10 +39,16 @@ export function SettingsDialog({ open, onClose }: Props) {
     opencode: "",
   });
   const [saving, setSaving] = useState(false);
+  // 标记初始配置是否已经拉取完成；未完成前不渲染表单，避免用户输入被 setDraft 覆盖
+  const [loaded, setLoaded] = useState(false);
 
   // 对话框打开时：先拉一次最新配置，再用当前值初始化草稿
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // 关闭对话框时重置加载态，下次打开会重新拉取并显示占位
+      setLoaded(false);
+      return;
+    }
     (async () => {
       await loadProviderConfig();
       const cfg = useSessionStore.getState().providerConfig;
@@ -54,10 +60,16 @@ export function SettingsDialog({ open, onClose }: Props) {
           opencode: cfg.providerPaths.opencode ?? "",
         });
       }
+      setLoaded(true);
     })();
   }, [open, loadProviderConfig]);
 
   if (!open) return null;
+
+  // 保存进行中时禁止任何关闭交互，避免对话框消失但 session 列表还在刷新
+  const closeIfIdle = () => {
+    if (!saving) onClose();
+  };
 
   const setField = (key: ProviderKey, value: string) => {
     setDraft((d) => ({ ...d, [key]: value }));
@@ -107,7 +119,7 @@ export function SettingsDialog({ open, onClose }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={onClose}
+      onClick={closeIfIdle}
     >
       <div
         className="w-[640px] max-w-[90vw] rounded-lg border border-border bg-surface p-5 shadow-xl"
@@ -119,72 +131,83 @@ export function SettingsDialog({ open, onClose }: Props) {
             {t.settingsTitle}
           </h2>
           <button
-            onClick={onClose}
-            className="rounded p-1 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+            onClick={closeIfIdle}
+            disabled={saving}
+            className="rounded p-1 text-text-muted hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
           >
             <X size={16} />
           </button>
         </div>
 
-        <h3 className="mb-3 text-sm font-medium text-text-secondary">
-          {t.settingsProviderPaths}
-        </h3>
+        {!loaded ? (
+          // 初次拉取配置前显示加载占位，防止用户在草稿即将被覆盖时输入
+          <div className="py-8 text-center text-xs text-text-muted">
+            {t.loading}
+          </div>
+        ) : (
+          <>
+            <h3 className="mb-3 text-sm font-medium text-text-secondary">
+              {t.settingsProviderPaths}
+            </h3>
 
-        {/* Provider 路径列表 */}
-        <div className="space-y-4">
-          {PROVIDERS.map(({ key, label, isFile }) => (
-            <div key={key} className="space-y-1">
-              <label className="block text-xs font-medium text-text-primary">
-                {label}
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={draft[key]}
-                  onChange={(e) => setField(key, e.target.value)}
-                  placeholder={t.settingsPathPlaceholder}
-                  className="flex-1 rounded border border-border bg-sidebar px-2 py-1 text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => browse(key, isFile)}
-                  className="rounded border border-border bg-sidebar px-2 py-1 text-xs text-text-primary hover:bg-surface-hover"
-                >
-                  {t.settingsBrowse}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setField(key, "")}
-                  className="rounded border border-border bg-sidebar px-2 py-1 text-xs text-text-primary hover:bg-surface-hover"
-                >
-                  {t.settingsReset}
-                </button>
-              </div>
-              {providerDefaults && providerDefaults[key] && (
-                <p className="text-[10px] text-text-muted">
-                  {t.settingsDefault}: {providerDefaults[key]}
-                </p>
-              )}
+            {/* Provider 路径列表 */}
+            <div className="space-y-4">
+              {PROVIDERS.map(({ key, label, isFile }) => (
+                <div key={key} className="space-y-1">
+                  <label className="block text-xs font-medium text-text-primary">
+                    {label}
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={draft[key]}
+                      onChange={(e) => setField(key, e.target.value)}
+                      placeholder={t.settingsPathPlaceholder}
+                      className="flex-1 rounded border border-border bg-sidebar px-2 py-1 text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => browse(key, isFile)}
+                      className="rounded border border-border bg-sidebar px-2 py-1 text-xs text-text-primary hover:bg-surface-hover"
+                    >
+                      {t.settingsBrowse}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setField(key, "")}
+                      className="rounded border border-border bg-sidebar px-2 py-1 text-xs text-text-primary hover:bg-surface-hover"
+                    >
+                      {t.settingsReset}
+                    </button>
+                  </div>
+                  {providerDefaults && providerDefaults[key] && (
+                    <p className="text-[10px] text-text-muted">
+                      {t.settingsDefault}: {providerDefaults[key]}
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        {/* 底部按钮 */}
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded border border-border bg-sidebar px-3 py-1 text-xs text-text-primary hover:bg-surface-hover"
-          >
-            {t.settingsCancel}
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded bg-accent px-3 py-1 text-xs text-surface hover:bg-accent-hover disabled:opacity-50"
-          >
-            {t.settingsSave}
-          </button>
-        </div>
+            {/* 底部按钮 */}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={closeIfIdle}
+                disabled={saving}
+                className="rounded border border-border bg-sidebar px-3 py-1 text-xs text-text-primary hover:bg-surface-hover disabled:opacity-50"
+              >
+                {t.settingsCancel}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="rounded bg-accent px-3 py-1 text-xs text-surface hover:bg-accent-hover disabled:opacity-50"
+              >
+                {t.settingsSave}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
