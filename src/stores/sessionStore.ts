@@ -40,7 +40,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
   toolFilter: null,
   searchQuery: "",
-  viewMode: "flat",
+  viewMode: "grouped",
   expandedPaths: new Set<string>(),
 
   fetchSessions: async () => {
