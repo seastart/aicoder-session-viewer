@@ -30,11 +30,15 @@ Download the `.exe` / `.msi` (Windows) or `.deb` / `.AppImage` (Linux) from the 
 
 - **Multi-tool support** — Claude Code, Codex, Gemini CLI, OpenCode
 - **Unified data model** — All session formats normalized on the Rust side before reaching the frontend
-- **Rich content rendering** — Markdown, syntax-highlighted code blocks (via Shiki), collapsible tool calls and thinking blocks
-- **Search & filter** — Filter by tool type, search sessions by title or project path (with 300ms debounce)
+- **Rich content rendering** — Markdown, syntax-highlighted code blocks (via Shiki), collapsible tool calls/thinking blocks, and image attachments with click-to-zoom preview
+- **Search & navigation** — Filter sessions by tool type, search sessions by title or project path (with 300ms debounce), and search within the current conversation
 - **Project grouping** — Group sessions by project path in a collapsible folder tree; toggle between flat list and grouped view
-- **Resume & scheduled continue** — Resume any historical session immediately, or wait until the reset time and then resume with `continue`
+- **Token usage summary** — Show per-message and session-level token usage when the source data contains usage metadata
+- **Subagent drill-down** — Expand Claude Code `Agent` tool calls and lazy-load their subagent conversation
+- **Resume, new session & scheduled continue** — Resume any historical session, start a new session from a project folder, or wait until the reset time and then resume with `continue`
+- **YOLO launch mode** — Hold Option/Alt or use the context menu to resume/start supported tools with their unattended approval flags
 - **Export** — Export sessions as JSONL or Markdown via save dialog
+- **Lightweight i18n** — Automatically follows the system/browser language, with `VITE_LOCALE=zh|en` override support
 - **Dark theme** — Purpose-built dark UI with per-tool color coding
 - **Fast & lightweight** — Native Tauri app with minimal resource usage; SQLite accessed read-only
 
@@ -84,6 +88,19 @@ Current command shapes for scheduled continue:
 
 This keeps the behavior aligned with each vendor CLI's supported session model instead of depending on terminal input injection hacks. Where supported, the app also opts into unattended approval modes so the resumed run can proceed without stopping for confirmation.
 
+## Keyboard Shortcuts
+
+| Shortcut | Scope | Action |
+|----------|-------|--------|
+| `Cmd+F` / `Ctrl+F` | Session detail | Focus the current conversation search box |
+| `Enter` | Conversation search box | Jump to the next match |
+| `Shift+Enter` | Conversation search box | Jump to the previous match |
+| `Esc` | Image preview | Close the full-size image preview |
+| Hold `Option` / `Alt` + click resume | Session detail | Resume with YOLO / unattended approval flags when supported |
+| Hold `Option` / `Alt` + click new session | Project tree | Start a new session with YOLO / unattended approval flags when supported |
+
+OpenCode currently ignores YOLO mode because its CLI does not expose an unattended approval flag yet.
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -116,6 +133,10 @@ pnpm install
 # Start in development mode (compiles Rust + starts Vite dev server)
 pnpm tauri dev
 
+# Force Chinese or English UI during development
+VITE_LOCALE=zh pnpm tauri dev
+VITE_LOCALE=en pnpm tauri dev
+
 # Build for production
 pnpm tauri build
 ```
@@ -142,24 +163,31 @@ aicoder-session-viewer/
 │   ├── App.tsx                 # Root component
 │   ├── App.css                 # Tailwind imports + theme variables
 │   ├── types.ts                # TypeScript types (mirrors models.rs)
+│   ├── i18n/                   # Lightweight Chinese / English locale layer
 │   ├── stores/
 │   │   └── sessionStore.ts     # Zustand store
 │   ├── hooks/
+│   │   ├── useAltKeyPressed.ts # Detect Option/Alt for YOLO launch shortcuts
 │   │   └── useDebounce.ts
 │   ├── utils/
-│   │   └── buildProjectTree.ts # Group sessions into folder tree
+│   │   ├── buildProjectTree.ts # Group sessions into folder tree
+│   │   ├── format.ts           # Shared number/time formatting helpers
+│   │   └── sessionSearch.ts    # In-session search and shortcut matching
 │   └── components/
-│       ├── Layout.tsx           # Two-column layout + view mode toggle
+│       ├── Layout.tsx           # Two-column layout + view mode toggle + settings dialog
+│       ├── SettingsDialog.tsx   # Provider path override dialog
+│       ├── common/
+│       │   └── YoloHint.tsx     # Shared YOLO mode badge
 │       ├── Sidebar/
 │       │   ├── SearchBar.tsx    # Debounced search input
 │       │   ├── ToolFilter.tsx   # Tool type filter tabs
 │       │   ├── SessionList.tsx  # Flat session list
-│       │   └── ProjectTree.tsx  # Grouped project folder tree
+│       │   └── ProjectTree.tsx  # Grouped project folder tree + new session launcher
 │       └── Chat/
-│           ├── ChatView.tsx     # Session detail + resume & export buttons
+│           ├── ChatView.tsx     # Session detail + search + resume + export buttons
 │           ├── MessageBubble.tsx # Message rendering (all content block types)
 │           ├── CodeBlock.tsx    # Shiki syntax highlighting
-│           └── ToolCallBlock.tsx # Collapsible tool use/result blocks
+│           └── ToolCallBlock.tsx # Collapsible tool use/result blocks + subagent drill-down
 ├── index.html
 ├── package.json
 ├── vite.config.ts

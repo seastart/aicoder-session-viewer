@@ -30,11 +30,15 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 
 - **多工具支持** — Claude Code、Codex、Gemini CLI、OpenCode
 - **统一数据模型** — 所有格式在 Rust 侧归一化后再传给前端
-- **丰富的内容渲染** — Markdown、Shiki 语法高亮代码块、可折叠的工具调用和思考过程
-- **搜索与过滤** — 按工具类型筛选，按标题或项目路径搜索（300ms 防抖）
+- **丰富的内容渲染** — Markdown、Shiki 语法高亮代码块、可折叠的工具调用/思考过程，以及支持点击放大的图片附件
+- **搜索与导航** — 按工具类型筛选，按标题或项目路径搜索（300ms 防抖），也支持在当前对话内搜索
 - **项目分组** — 按项目路径将 session 分组为可折叠的文件夹树，支持列表/分组视图切换
-- **恢复与定时继续** — 既可直接恢复历史 session，也可等待到 reset 时间后自动恢复并附带 `continue`
+- **Token 用量汇总** — 当源数据包含 usage 信息时，展示单条消息和整个 session 的 token 用量
+- **Subagent 下钻** — 展开 Claude Code 的 `Agent` 工具调用，并懒加载对应 subagent 对话
+- **恢复、新建与定时继续** — 既可恢复历史 session，也可从项目文件夹新建 session，或等待到 reset 时间后自动恢复并附带 `continue`
+- **YOLO 启动模式** — 按住 Option/Alt 或使用右键菜单，可用无人值守权限参数恢复/新建支持的工具
 - **导出** — 支持将 session 导出为 JSONL 或 Markdown 格式
+- **轻量中英文切换** — 默认跟随系统/浏览器语言，也支持通过 `VITE_LOCALE=zh|en` 覆盖
 - **暗色主题** — 专为阅读对话设计的暗色 UI，每种工具有独立配色
 - **快速轻量** — 原生 Tauri 应用，资源占用低；SQLite 只读访问
 
@@ -83,6 +87,19 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 
 这个策略的本质是“在正确时间点重新发起一次原生恢复请求”，而不是“接管正在运行的旧终端”。前者依赖 CLI 官方支持的 `resume + prompt` 能力；如果 CLI 还支持无人值守权限模式，就一并带上，避免恢复后又停在审批弹窗上。
 
+## 快捷键
+
+| 快捷键 | 作用范围 | 行为 |
+|--------|----------|------|
+| `Cmd+F` / `Ctrl+F` | Session 详情 | 聚焦当前对话搜索框 |
+| `Enter` | 对话搜索框 | 跳到下一个命中 |
+| `Shift+Enter` | 对话搜索框 | 跳到上一个命中 |
+| `Esc` | 图片预览 | 关闭大图预览 |
+| 按住 `Option` / `Alt` 点击恢复会话 | Session 详情 | 在支持的工具上以 YOLO / 无人值守权限模式恢复 |
+| 按住 `Option` / `Alt` 点击新建会话 | 项目树 | 在支持的工具上以 YOLO / 无人值守权限模式新建 |
+
+OpenCode 当前 CLI 暂未暴露无人值守权限参数，因此会忽略 YOLO 模式。
+
 ## 技术栈
 
 | 层级 | 技术 |
@@ -115,7 +132,8 @@ pnpm install
 # 启动开发模式（编译 Rust + 启动 Vite 开发服务器）
 pnpm tauri dev
 
-# 临时用英文界面启动
+# 临时指定中文或英文界面启动
+VITE_LOCALE=zh pnpm tauri dev
 VITE_LOCALE=en pnpm tauri dev
 
 # 构建生产版本
@@ -144,24 +162,31 @@ aicoder-session-viewer/
 │   ├── App.tsx                 # 根组件
 │   ├── App.css                 # Tailwind 导入 + 主题变量
 │   ├── types.ts                # TypeScript 类型（对应 models.rs）
+│   ├── i18n/                   # 轻量中英文 locale 层
 │   ├── stores/
 │   │   └── sessionStore.ts     # Zustand 状态管理
 │   ├── hooks/
+│   │   ├── useAltKeyPressed.ts # 监听 Option/Alt，用于 YOLO 启动快捷入口
 │   │   └── useDebounce.ts      # 防抖 hook
 │   ├── utils/
-│   │   └── buildProjectTree.ts # Session 按项目路径构建树
+│   │   ├── buildProjectTree.ts # Session 按项目路径构建树
+│   │   ├── format.ts           # 通用数字/时间格式化
+│   │   └── sessionSearch.ts    # 当前对话搜索与快捷键判断
 │   └── components/
-│       ├── Layout.tsx           # 双栏布局 + 视图切换
+│       ├── Layout.tsx           # 双栏布局 + 视图切换 + 设置弹窗入口
+│       ├── SettingsDialog.tsx   # Provider 路径覆盖设置
+│       ├── common/
+│       │   └── YoloHint.tsx     # YOLO 模式提示徽标
 │       ├── Sidebar/
 │       │   ├── SearchBar.tsx    # 带防抖的搜索输入
 │       │   ├── ToolFilter.tsx   # 工具类型过滤标签
 │       │   ├── SessionList.tsx  # 扁平 Session 列表
-│       │   └── ProjectTree.tsx  # 项目分组文件夹树
+│       │   └── ProjectTree.tsx  # 项目分组文件夹树 + 新建会话入口
 │       └── Chat/
-│           ├── ChatView.tsx     # Session 详情 + 恢复/导出按钮
+│           ├── ChatView.tsx     # Session 详情 + 对话搜索 + 恢复/导出按钮
 │           ├── MessageBubble.tsx # 消息渲染（支持所有内容块类型）
 │           ├── CodeBlock.tsx    # Shiki 语法高亮
-│           └── ToolCallBlock.tsx # 可折叠的工具调用/结果块
+│           └── ToolCallBlock.tsx # 可折叠的工具调用/结果块 + subagent 下钻
 ├── index.html
 ├── package.json
 ├── vite.config.ts
