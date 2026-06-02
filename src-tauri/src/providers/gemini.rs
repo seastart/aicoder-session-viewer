@@ -6,7 +6,7 @@ use walkdir::WalkDir;
 
 use crate::error::{AppError, AppResult};
 use crate::models::*;
-use crate::providers::SessionProvider;
+use crate::providers::{search, SessionProvider};
 
 /// Gemini CLI 数据源
 ///
@@ -21,6 +21,10 @@ use crate::providers::SessionProvider;
 /// - `tokens`: {input, output, cached, thoughts, tool, total}
 /// - `timestamp`: ISO 8601 时间戳
 pub struct GeminiProvider {
+    /// 按文件 mtime 缓存的会话摘要：文件未变化时跳过读取与 JSON 解析
+    summary_cache: std::sync::RwLock<
+        std::collections::HashMap<PathBuf, (std::time::SystemTime, SessionSummary)>,
+    >,
     base_dir: PathBuf,
 }
 
@@ -44,7 +48,77 @@ impl GeminiProvider {
                 base_dir.display()
             )));
         }
-        Ok(Self { base_dir })
+        Ok(Self {
+            base_dir,
+            summary_cache: std::sync::RwLock::new(std::collections::HashMap::new()),
+        })
+    }
+
+    /// 获取单个会话文件的摘要（带 mtime 缓存：文件未变化时直接复用上次结果）
+    fn summary_for(&self, path: &PathBuf) -> SessionSummary {
+        let mtime = fs::metadata(path).ok().and_then(|m| m.modified().ok());
+
+        // 缓存命中且文件未变化 → 直接复用
+        if let Some(mt) = mtime {
+            if let Some((cached_mt, cached)) = self.summary_cache.read().unwrap().get(path) {
+                if *cached_mt == mt {
+                    return cached.clone();
+                }
+            }
+        }
+
+        let fallback_id = Self::session_id_from_path(path);
+        let project = Self::project_from_path(path);
+
+        // 解析 JSON，提取真实 sessionId 和摘要信息
+        let (real_id, msg_count, title, started_at) = match fs::read_to_string(path) {
+            Ok(content) => {
+                let data: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+
+                // 使用 JSON 中的 sessionId 作为真实 ID
+                let real_id = data
+                    .get("sessionId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let msgs = data.get("messages").and_then(|m| m.as_array());
+                let count = msgs.map(|a| a.len()).unwrap_or(0);
+                let title = msgs.and_then(|m| Self::extract_title_from_messages(m));
+                let started = data
+                    .get("startTime")
+                    .and_then(|t| t.as_str())
+                    .and_then(Self::parse_timestamp);
+
+                (real_id, count, title, started)
+            }
+            Err(_) => (None, 0, None, None),
+        };
+
+        let file_mtime = mtime.map(DateTime::<Utc>::from);
+
+        let summary = SessionSummary {
+            id: real_id.unwrap_or(fallback_id),
+            tool: ToolKind::Gemini,
+            title: title.unwrap_or_else(|| {
+                project
+                    .clone()
+                    .unwrap_or_else(|| "Gemini Session".to_string())
+            }),
+            project_path: project,
+            // 如果没有 startTime，用文件修改时间
+            started_at: started_at.or(file_mtime),
+            updated_at: file_mtime,
+            message_count: msg_count,
+            total_tokens: None,
+        };
+
+        if let Some(mt) = mtime {
+            self.summary_cache
+                .write()
+                .unwrap()
+                .insert(path.clone(), (mt, summary.clone()));
+        }
+        summary
     }
 
     /// 扫描所有 session JSON 文件
@@ -376,61 +450,12 @@ impl SessionProvider for GeminiProvider {
 
     fn list_sessions(&self) -> AppResult<Vec<SessionSummary>> {
         let files = self.find_session_files();
-        let mut summaries = Vec::new();
 
-        for path in &files {
-            let fallback_id = Self::session_id_from_path(path);
-            let project = Self::project_from_path(path);
-
-            // 解析 JSON，提取真实 sessionId 和摘要信息
-            let (real_id, msg_count, title, started_at) = match fs::read_to_string(path) {
-                Ok(content) => {
-                    let data: serde_json::Value =
-                        serde_json::from_str(&content).unwrap_or_default();
-
-                    // 使用 JSON 中的 sessionId 作为真实 ID
-                    let real_id = data
-                        .get("sessionId")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-
-                    let msgs = data.get("messages").and_then(|m| m.as_array());
-                    let count = msgs.map(|a| a.len()).unwrap_or(0);
-                    let title = msgs.and_then(|m| Self::extract_title_from_messages(m));
-                    let started = data
-                        .get("startTime")
-                        .and_then(|t| t.as_str())
-                        .and_then(Self::parse_timestamp);
-
-                    (real_id, count, title, started)
-                }
-                Err(_) => (None, 0, None, None),
-            };
-
-            let file_mtime = fs::metadata(path)
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .map(|t| DateTime::<Utc>::from(t));
-
-            // 如果没有 startTime，用文件修改时间
-            let started_at = started_at.or(file_mtime);
-            let updated_at = file_mtime;
-
-            summaries.push(SessionSummary {
-                id: real_id.unwrap_or(fallback_id),
-                tool: ToolKind::Gemini,
-                title: title.unwrap_or_else(|| {
-                    project
-                        .clone()
-                        .unwrap_or_else(|| "Gemini Session".to_string())
-                }),
-                project_path: project,
-                started_at,
-                updated_at,
-                message_count: msg_count,
-                total_tokens: None,
-            });
-        }
+        // rayon 并行：冷启动（缓存未建立）时需要解析所有文件，并行化缩短首次延迟；
+        // 缓存命中后每个文件只剩一次 stat，开销极小
+        use rayon::prelude::*;
+        let mut summaries: Vec<SessionSummary> =
+            files.par_iter().map(|path| self.summary_for(path)).collect();
 
         summaries.sort_by(|a, b| {
             let a_time = a.updated_at.or(a.started_at);
@@ -486,18 +511,58 @@ impl SessionProvider for GeminiProvider {
         Ok(Session { summary, messages })
     }
 
-    fn search_sessions(&self, query: &str) -> AppResult<Vec<SessionSummary>> {
-        let query_lower = query.to_lowercase();
+    fn search_sessions(
+        &self,
+        query: &str,
+        include_content: bool,
+    ) -> AppResult<Vec<SessionSummary>> {
         let all = self.list_sessions()?;
+
+        // session_id → 文件路径映射（ID 推导走带缓存的 summary_for，
+        // 与 list_sessions 规则一致且通常无额外 IO），仅深度搜索时构建
+        let mut path_map: std::collections::HashMap<String, PathBuf> =
+            std::collections::HashMap::new();
+        if include_content {
+            for path in self.find_session_files() {
+                let id = self.summary_for(&path).id;
+                path_map.insert(id, path);
+            }
+        }
+
+        // rayon 并行扫描：内容匹配需要读取所有会话文件，并行化以缩短搜索延迟
+        use rayon::prelude::*;
         Ok(all
-            .into_iter()
+            .into_par_iter()
             .filter(|s| {
-                s.title.to_lowercase().contains(&query_lower)
+                // 先匹配标题/项目路径（便宜），再做会话内容全文匹配
+                search::contains_ci(&s.title, query)
                     || s.project_path
                         .as_deref()
-                        .is_some_and(|p| p.to_lowercase().contains(&query_lower))
+                        .is_some_and(|p| search::contains_ci(p, query))
+                    || (include_content
+                        && path_map
+                            .get(&s.id)
+                            .is_some_and(|p| self.file_content_matches(p, query)))
             })
             .collect())
+    }
+}
+
+impl GeminiProvider {
+    /// 判断 JSON 会话内容是否包含关键字
+    ///
+    /// 先做整文件原始字节预筛（不含关键字的文件直接跳过），
+    /// 命中后做完整解析 + 块级精确匹配（排除工具结果，见 search 模块）
+    fn file_content_matches(&self, path: &PathBuf, query: &str) -> bool {
+        let Ok(content) = fs::read_to_string(path) else {
+            return false;
+        };
+        if !search::contains_ci(&content, query) {
+            return false;
+        }
+        self.parse_session_file(path)
+            .map(|(messages, _)| search::messages_match_query(&messages, query))
+            .unwrap_or(false)
     }
 }
 

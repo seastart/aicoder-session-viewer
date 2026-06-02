@@ -2,6 +2,7 @@ pub mod claude;
 pub mod codex;
 pub mod gemini;
 pub mod opencode;
+pub mod search;
 
 use crate::config::ProviderPaths;
 use crate::error::AppResult;
@@ -18,8 +19,12 @@ pub trait SessionProvider: Send + Sync {
     /// 获取完整 session（含所有消息）
     fn get_session(&self, session_id: &str) -> AppResult<Session>;
 
-    /// 简单文本搜索，返回匹配的 session 摘要
-    fn search_sessions(&self, query: &str) -> AppResult<Vec<SessionSummary>>;
+    /// 文本搜索，返回匹配的 session 摘要
+    ///
+    /// `include_content` 为 false 时只匹配标题/项目路径（便宜，适合实时输入触发）；
+    /// 为 true 时额外做会话内容全文匹配（需要扫描所有会话文件，由用户显式触发）
+    fn search_sessions(&self, query: &str, include_content: bool)
+        -> AppResult<Vec<SessionSummary>>;
 }
 
 /// Provider 注册中心，统一管理所有数据源
@@ -146,11 +151,12 @@ impl ProviderRegistry {
         }
     }
 
-    /// 搜索 session
+    /// 搜索 session（include_content 含义见 SessionProvider::search_sessions）
     pub fn search_sessions(
         &self,
         query: &str,
         tool: Option<ToolKind>,
+        include_content: bool,
     ) -> AppResult<Vec<SessionSummary>> {
         let mut results = Vec::new();
         for provider in &self.providers {
@@ -159,7 +165,7 @@ impl ProviderRegistry {
                     continue;
                 }
             }
-            match provider.search_sessions(query) {
+            match provider.search_sessions(query, include_content) {
                 Ok(sessions) => results.extend(sessions),
                 Err(e) => eprintln!("[{}] 搜索失败: {}", provider.tool_kind_label(), e),
             }
@@ -193,6 +199,42 @@ impl<T: SessionProvider + ?Sized> ToolKindLabel for T {
 mod tests {
     use super::*;
     use crate::config::ProviderPaths;
+
+    /// 用本机真实数据手动验证全文搜索效果与耗时（依赖本地数据，默认忽略）
+    /// 运行: cargo test --release real_data_search -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn real_data_search_smoke() {
+        let reg = ProviderRegistry::new(&ProviderPaths::default());
+
+        // 基线：纯列表耗时（浅搜索的主要成本）
+        for _ in 0..2 {
+            let t = std::time::Instant::now();
+            let n = reg.list_all_sessions().unwrap().len();
+            println!("list_all_sessions: {} sessions, elapsed={:?}", n, t.elapsed());
+        }
+        // 浅搜索（标题/路径）
+        let t = std::time::Instant::now();
+        let n = reg.search_sessions("部署", None, false).unwrap().len();
+        println!("shallow search: matched={} elapsed={:?}", n, t.elapsed());
+
+        for query in ["deploy", "部署", "zzqxv_nomatch"] {
+            let t = std::time::Instant::now();
+            let results = reg.search_sessions(query, None, true).unwrap();
+            let mut by_tool: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for s in &results {
+                *by_tool.entry(format!("{:?}", s.tool)).or_insert(0) += 1;
+            }
+            println!(
+                "query={:?} matched={} elapsed={:?} by_tool={:?}",
+                query,
+                results.len(),
+                t.elapsed(),
+                by_tool
+            );
+        }
+    }
 
     /// 给定全部 provider 都是不存在的路径时，reload 应当为每个 provider
     /// 各产生一条 warning，且前缀与显示名一致。

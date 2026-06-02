@@ -7,7 +7,7 @@ use walkdir::WalkDir;
 
 use crate::error::{AppError, AppResult};
 use crate::models::*;
-use crate::providers::SessionProvider;
+use crate::providers::{search, SessionProvider};
 
 /// Codex 数据源
 ///
@@ -711,13 +711,57 @@ impl SessionProvider for CodexProvider {
         Ok(Session { summary, messages })
     }
 
-    fn search_sessions(&self, query: &str) -> AppResult<Vec<SessionSummary>> {
-        let query_lower = query.to_lowercase();
+    fn search_sessions(
+        &self,
+        query: &str,
+        include_content: bool,
+    ) -> AppResult<Vec<SessionSummary>> {
         let all = self.list_sessions()?;
+        // session_id（即文件名 stem）→ 文件路径映射，供内容全文匹配使用（仅深度搜索时构建）
+        let path_map: std::collections::HashMap<String, PathBuf> = if include_content {
+            self.find_session_files()
+                .into_iter()
+                .map(|p| (Self::session_id_from_path(&p), p))
+                .collect()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+        // rayon 并行扫描：内容匹配需要读取所有会话文件，并行化以缩短搜索延迟
+        use rayon::prelude::*;
         Ok(all
-            .into_iter()
-            .filter(|s| s.title.to_lowercase().contains(&query_lower))
+            .into_par_iter()
+            .filter(|s| {
+                // 先匹配标题/项目路径（便宜），再做会话内容全文匹配
+                search::contains_ci(&s.title, query)
+                    || s.project_path
+                        .as_deref()
+                        .is_some_and(|p| search::contains_ci(p, query))
+                    || (include_content
+                        && path_map
+                            .get(&s.id)
+                            .is_some_and(|p| self.file_content_matches(p, query)))
+            })
             .collect())
+    }
+}
+
+impl CodexProvider {
+    /// 判断 JSONL 会话内容是否包含关键字
+    ///
+    /// 先做整文件原始字节预筛（绝大多数文件直接跳过），
+    /// 命中后走完整解析——parse_session_file 已剔除 developer/环境上下文注入，
+    /// 块级匹配再排除工具结果（见 search 模块），保证信噪比
+    fn file_content_matches(&self, path: &PathBuf, query: &str) -> bool {
+        let Ok(content) = fs::read_to_string(path) else {
+            return false;
+        };
+        if !search::contains_ci(&content, query) {
+            return false;
+        }
+        self.parse_session_file(path)
+            .map(|(messages, _, _)| search::messages_match_query(&messages, query))
+            .unwrap_or(false)
     }
 }
 

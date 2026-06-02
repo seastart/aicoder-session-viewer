@@ -60,7 +60,7 @@ Defined in `commands.rs`, registered in `lib.rs`:
 - `list_sessions(tool)` — single tool filter
 - `get_session(tool, session_id)` — full session with messages
 - `get_subagent_messages(session_id, agent_id)` — Claude Code subagent messages (lazy-loaded)
-- `search_sessions(query, tool?)` — title/path text search
+- `search_sessions(query, tool?, include_content?)` — title/path match when `include_content` is false (300ms debounce while typing); full-text content search when true (auto-triggered 1s after typing stops, or immediately on Enter; matches message text, thinking, code, tool-call params; excludes tool results and `<system-reminder>` injections — see `providers/search.rs`)
 - `resume_session(tool, session_id, project_path?)` — resume session in system terminal
 - `open_new_session(tool, project_path)` — open new session in project directory
 - `export_session_jsonl(tool, session_id, save_path)` — export as JSONL

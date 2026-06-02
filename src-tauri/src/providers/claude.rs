@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::error::{AppError, AppResult};
 use crate::models::*;
-use crate::providers::SessionProvider;
+use crate::providers::{search, SessionProvider};
 use chrono::{DateTime, Utc};
 
 /// Claude Code 数据源
@@ -18,6 +18,9 @@ use chrono::{DateTime, Utc};
 pub struct ClaudeCodeProvider {
     /// ~/.claude 根目录
     base_dir: PathBuf,
+    /// 按文件 mtime 缓存的会话摘要：文件未变化时跳过读取与解析，
+    /// 列表/搜索从「每次全量扫描」降为「只处理有变化的文件」
+    summary_cache: std::sync::RwLock<HashMap<PathBuf, (std::time::SystemTime, SessionSummary)>>,
 }
 
 /// 扫描到的 JSONL 文件信息
@@ -50,7 +53,10 @@ impl ClaudeCodeProvider {
                 base_dir.display()
             )));
         }
-        Ok(Self { base_dir })
+        Ok(Self {
+            base_dir,
+            summary_cache: std::sync::RwLock::new(HashMap::new()),
+        })
     }
 
     /// 扫描 projects 目录，收集所有主 session 的 JSONL 文件（排除 subagents）
@@ -126,120 +132,149 @@ impl ClaudeCodeProvider {
         raw
     }
 
-    /// 从 JSONL 第一条消息中提取项目路径（cwd 字段）
-    fn extract_cwd_from_jsonl(path: &PathBuf) -> Option<String> {
-        let content = fs::read_to_string(path).ok()?;
+    /// 单次遍历 JSONL 内容，一趟提取摘要所需的全部字段：
+    /// (标题, 消息数, cwd, 起始时间)
+    ///
+    /// 旧实现 title/count/cwd/timestamp 各自完整读一遍文件（4 次全量 IO），
+    /// 是列表与实时搜索卡顿的主要来源，这里合并为单次读取单次遍历；
+    /// 且仅在还缺字段时才对行做 JSON 解析
+    fn scan_summary_from_content(
+        content: &str,
+    ) -> (String, usize, Option<String>, Option<DateTime<Utc>>) {
+        let mut title: Option<String> = None;
+        let mut cwd: Option<String> = None;
+        let mut started_at: Option<DateTime<Utc>> = None;
+        let mut count = 0usize;
+
         for line in content.lines() {
             let line = line.trim();
             if line.is_empty() {
                 continue;
             }
-            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                // 很多行都带有 cwd 字段，取第一个就行
-                if let Some(cwd) = entry.get("cwd").and_then(|c| c.as_str()) {
-                    return Some(cwd.to_string());
+
+            // 消息计数沿用廉价的原始字符串判断（与旧 count_messages 行为一致）
+            let is_user = line.contains("\"type\":\"user\"") || line.contains("\"type\":\"human\"");
+            if is_user || line.contains("\"type\":\"assistant\"") {
+                count += 1;
+            }
+
+            // 所有字段都已拿到时，只剩计数，无需再做 JSON 解析
+            let need_parse =
+                cwd.is_none() || started_at.is_none() || (title.is_none() && is_user);
+            if !need_parse {
+                continue;
+            }
+            let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+
+            // cwd / timestamp：很多行都带，取第一个出现的即可
+            if cwd.is_none() {
+                if let Some(c) = entry.get("cwd").and_then(|c| c.as_str()) {
+                    cwd = Some(c.to_string());
                 }
             }
-        }
-        None
-    }
-
-    /// 从 JSONL 第一条消息中提取时间戳
-    fn extract_timestamp_from_jsonl(path: &PathBuf) -> Option<DateTime<Utc>> {
-        let content = fs::read_to_string(path).ok()?;
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+            if started_at.is_none() {
                 if let Some(ts) = entry.get("timestamp").and_then(|t| t.as_str()) {
                     if let Ok(dt) = DateTime::parse_from_rfc3339(ts) {
-                        return Some(dt.with_timezone(&Utc));
+                        started_at = Some(dt.with_timezone(&Utc));
                     }
                 }
             }
+            if title.is_none() && is_user {
+                title = Self::title_from_user_entry(&entry);
+            }
         }
-        None
+
+        (
+            title.unwrap_or_else(|| "Untitled Session".to_string()),
+            count,
+            cwd,
+            started_at,
+        )
     }
 
-    /// 从 JSONL 文件中提取标题（取第一条有实际内容的用户消息，截取前 80 字符）
+    /// 从单条用户消息 entry 中提取标题候选（截取前 80 字符）
     ///
-    /// 跳过以下非用户内容，继续找下一条真正的用户消息：
+    /// 返回 None 表示该条不适合做标题，继续找下一条真正的用户消息：
     /// - 无文本的消息（如仅含 tool_result）
     /// - `<` 开头：Claude Code 注入的 XML 系统内容（如 `<local-command-caveat>`）
     /// - `[` 开头：系统通知（如 `[Request interrupted by user for tool use]`）
-    fn extract_title_from_jsonl(path: &PathBuf) -> String {
-        if let Ok(content) = fs::read_to_string(path) {
-            for line in content.lines() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                    let msg_type = entry.get("type").and_then(|t| t.as_str());
-                    if matches!(msg_type, Some("user") | Some("human")) {
-                        if let Some(content_val) =
-                            entry.get("message").and_then(|m| m.get("content"))
-                        {
-                            let text = match content_val {
-                                serde_json::Value::String(s) => s.clone(),
-                                serde_json::Value::Array(arr) => arr
-                                    .iter()
-                                    .find_map(|block| {
-                                        if block.get("type")?.as_str()? == "text" {
-                                            block.get("text")?.as_str().map(|s| s.to_string())
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or_default(),
-                                _ => String::new(),
-                            };
-                            let trimmed = text.trim();
-                            // 跳过：空文本、XML 系统注入、系统通知（如 [Request interrupted...]）
-                            if trimmed.is_empty()
-                                || trimmed.starts_with('<')
-                                || trimmed.starts_with('[')
-                            {
-                                continue;
-                            }
-                            // 多行合并为一行（空格连接），截取前 80 字符
-                            let oneline: String = trimmed
-                                .lines()
-                                .map(|l| l.trim())
-                                .filter(|l| !l.is_empty())
-                                .collect::<Vec<_>>()
-                                .join(" ");
-                            let title: String = oneline.chars().take(80).collect();
-                            return if title.len() < oneline.len() {
-                                format!("{}...", title)
-                            } else {
-                                title
-                            };
-                        }
+    fn title_from_user_entry(entry: &serde_json::Value) -> Option<String> {
+        let content_val = entry.get("message").and_then(|m| m.get("content"))?;
+        let text = match content_val {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Array(arr) => arr
+                .iter()
+                .find_map(|block| {
+                    if block.get("type")?.as_str()? == "text" {
+                        block.get("text")?.as_str().map(|s| s.to_string())
+                    } else {
+                        None
                     }
+                })
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
+        let trimmed = text.trim();
+        // 跳过：空文本、XML 系统注入、系统通知（如 [Request interrupted...]）
+        if trimmed.is_empty() || trimmed.starts_with('<') || trimmed.starts_with('[') {
+            return None;
+        }
+        // 多行合并为一行（空格连接），截取前 80 字符
+        let oneline: String = trimmed
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let title: String = oneline.chars().take(80).collect();
+        Some(if title.len() < oneline.len() {
+            format!("{}...", title)
+        } else {
+            title
+        })
+    }
+
+    /// 获取单个会话的摘要（带 mtime 缓存：文件未变化时直接复用上次结果）
+    fn summary_for(&self, info: &JsonlFileInfo) -> SessionSummary {
+        let mtime = fs::metadata(&info.path).ok().and_then(|m| m.modified().ok());
+
+        // 缓存命中且文件未变化 → 直接复用
+        if let Some(mt) = mtime {
+            if let Some((cached_mt, cached)) =
+                self.summary_cache.read().unwrap().get(&info.path)
+            {
+                if *cached_mt == mt {
+                    return cached.clone();
                 }
             }
         }
-        "Untitled Session".to_string()
-    }
 
-    /// 统计 JSONL 文件中的消息数（只计 user/assistant 类型）
-    fn count_messages(path: &PathBuf) -> usize {
-        fs::read_to_string(path)
-            .map(|content| {
-                content
-                    .lines()
-                    .filter(|l| {
-                        let l = l.trim();
-                        l.contains("\"type\":\"user\"")
-                            || l.contains("\"type\":\"human\"")
-                            || l.contains("\"type\":\"assistant\"")
-                    })
-                    .count()
-            })
-            .unwrap_or(0)
+        let content = fs::read_to_string(&info.path).unwrap_or_default();
+        let (title, message_count, cwd, started_at) = Self::scan_summary_from_content(&content);
+        // 优先从 JSONL 内容取 cwd，否则从目录名反推
+        let project_path = cwd.unwrap_or_else(|| Self::dir_name_to_path(&info.project_dir_name));
+
+        let summary = SessionSummary {
+            id: info.session_id.clone(),
+            tool: ToolKind::ClaudeCode,
+            title,
+            project_path: Some(project_path),
+            started_at,
+            // 文件修改时间作为最后活跃时间
+            updated_at: mtime.map(DateTime::<Utc>::from),
+            message_count,
+            total_tokens: None,
+        };
+
+        if let Some(mt) = mtime {
+            self.summary_cache
+                .write()
+                .unwrap()
+                .insert(info.path.clone(), (mt, summary.clone()));
+        }
+        summary
     }
 
     /// 解析 JSONL 文件为消息列表
@@ -503,34 +538,11 @@ impl SessionProvider for ClaudeCodeProvider {
     fn list_sessions(&self) -> AppResult<Vec<SessionSummary>> {
         let files = self.scan_main_sessions();
 
-        let mut summaries = Vec::new();
-        for info in &files {
-            let title = Self::extract_title_from_jsonl(&info.path);
-            let message_count = Self::count_messages(&info.path);
-
-            // 优先从 JSONL 内容取 cwd，否则从目录名反推
-            let project_path = Self::extract_cwd_from_jsonl(&info.path)
-                .unwrap_or_else(|| Self::dir_name_to_path(&info.project_dir_name));
-
-            // 从 JSONL 内容取时间戳
-            let started_at = Self::extract_timestamp_from_jsonl(&info.path);
-            // 文件修改时间作为最后活跃时间
-            let updated_at = fs::metadata(&info.path)
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .map(DateTime::<Utc>::from);
-
-            summaries.push(SessionSummary {
-                id: info.session_id.clone(),
-                tool: ToolKind::ClaudeCode,
-                title,
-                project_path: Some(project_path),
-                started_at,
-                updated_at,
-                message_count,
-                total_tokens: None,
-            });
-        }
+        // rayon 并行：冷启动（缓存未建立）时需要读取所有文件，并行化缩短首次延迟；
+        // 缓存命中后每个文件只剩一次 stat，开销极小
+        use rayon::prelude::*;
+        let mut summaries: Vec<SessionSummary> =
+            files.par_iter().map(|info| self.summary_for(info)).collect();
 
         // 按最后活跃时间倒序（没有 updated_at 时回退到 started_at）
         summaries.sort_by(|a, b| {
@@ -550,9 +562,8 @@ impl SessionProvider for ClaudeCodeProvider {
             .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
 
         let messages = self.parse_jsonl(&info.path)?;
-        let title = Self::extract_title_from_jsonl(&info.path);
-        let project_path = Self::extract_cwd_from_jsonl(&info.path)
-            .unwrap_or_else(|| Self::dir_name_to_path(&info.project_dir_name));
+        // 标题/项目路径复用带缓存的摘要提取
+        let cached = self.summary_for(info);
         let started_at = messages.first().and_then(|m| m.timestamp);
         let updated_at = messages.last().and_then(|m| m.timestamp);
 
@@ -560,8 +571,8 @@ impl SessionProvider for ClaudeCodeProvider {
         let summary = SessionSummary {
             id: session_id.to_string(),
             tool: ToolKind::ClaudeCode,
-            title,
-            project_path: Some(project_path),
+            title: cached.title,
+            project_path: cached.project_path,
             started_at,
             updated_at,
             message_count: messages.len(),
@@ -571,18 +582,65 @@ impl SessionProvider for ClaudeCodeProvider {
         Ok(Session { summary, messages })
     }
 
-    fn search_sessions(&self, query: &str) -> AppResult<Vec<SessionSummary>> {
-        let query_lower = query.to_lowercase();
+    fn search_sessions(
+        &self,
+        query: &str,
+        include_content: bool,
+    ) -> AppResult<Vec<SessionSummary>> {
         let all = self.list_sessions()?;
+        // session_id → 文件路径映射，供内容全文匹配使用（仅深度搜索时构建）
+        let path_map: HashMap<String, PathBuf> = if include_content {
+            self.scan_main_sessions()
+                .into_iter()
+                .map(|f| (f.session_id, f.path))
+                .collect()
+        } else {
+            HashMap::new()
+        };
+
+        // rayon 并行扫描：内容匹配需要读取所有会话文件，并行化以缩短搜索延迟
+        use rayon::prelude::*;
         Ok(all
-            .into_iter()
+            .into_par_iter()
             .filter(|s| {
-                s.title.to_lowercase().contains(&query_lower)
+                // 先匹配标题/项目路径（便宜），再做会话内容全文匹配
+                search::contains_ci(&s.title, query)
                     || s.project_path
                         .as_deref()
-                        .is_some_and(|p| p.to_lowercase().contains(&query_lower))
+                        .is_some_and(|p| search::contains_ci(p, query))
+                    || (include_content
+                        && path_map
+                            .get(&s.id)
+                            .is_some_and(|p| self.file_content_matches(p, query)))
             })
             .collect())
+    }
+}
+
+impl ClaudeCodeProvider {
+    /// 判断 JSONL 会话内容是否包含关键字
+    ///
+    /// 两级过滤避免全量 JSON 解析的开销：
+    /// 1. 整文件原始字节预筛——绝大多数不含关键字的文件直接跳过
+    /// 2. 仅对原始命中的行做 JSON 解析 + 块级精确匹配
+    ///    （排除 system-reminder 注入和工具结果，见 search 模块），命中即早退
+    fn file_content_matches(&self, path: &PathBuf, query: &str) -> bool {
+        let Ok(content) = fs::read_to_string(path) else {
+            return false;
+        };
+        if !search::contains_ci(&content, query) {
+            return false;
+        }
+        content.lines().any(|line| {
+            let line = line.trim();
+            if line.is_empty() || !search::contains_ci(line, query) {
+                return false;
+            }
+            serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|entry| self.parse_message_entry(&entry))
+                .is_some_and(|msg| search::message_matches_query(&msg, query))
+        })
     }
 }
 

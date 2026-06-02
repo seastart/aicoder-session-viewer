@@ -31,7 +31,7 @@ Download the `.exe` / `.msi` (Windows) or `.deb` / `.AppImage` (Linux) from the 
 - **Multi-tool support** — Claude Code, Codex, Gemini CLI, OpenCode
 - **Unified data model** — All session formats normalized on the Rust side before reaching the frontend
 - **Rich content rendering** — Markdown, syntax-highlighted code blocks (via Shiki), collapsible tool calls/thinking blocks, and image attachments with click-to-zoom preview
-- **Search & navigation** — Filter sessions by tool type, search sessions by title or project path (with 300ms debounce), and search within the current conversation
+- **Search & navigation** — Filter sessions by tool type, realtime title/path search (300ms debounce) that auto-upgrades to full-text content search (message text, thinking, and tool-call params) 1s after typing stops — or immediately on Enter, and search within the current conversation
 - **Project grouping** — Group sessions by project path in a collapsible folder tree; toggle between flat list and grouped view
 - **Token usage summary** — Show per-message and session-level token usage when the source data contains usage metadata
 - **Subagent drill-down** — Expand Claude Code `Agent` tool calls and lazy-load their subagent conversation

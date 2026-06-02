@@ -1,6 +1,6 @@
 [package]
 name = "aicoder-session-viewer"
-version = "0.1.11"
+version = "0.1.12"
 description = "Unified AI coding assistant session viewer"
 authors = ["you"]
 edition = "2021"
@@ -8,6 +8,11 @@ edition = "2021"
 [lib]
 name = "aicoder_session_viewer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# dev（debug）构建下也对依赖库开优化：memchr 的 SIMD、serde_json 解析
+# 否则 `pnpm tauri dev` 下全文搜索比 release 慢数倍；本 crate 仍为 opt-level 0，不影响增量编译
+[profile.dev.package."*"]
+opt-level = 2
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -22,4 +27,7 @@ thiserror = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 dirs = "6"
 walkdir = "2"
+# 全文搜索：SIMD 加速子串匹配 + 并行文件扫描
+memchr = "2"
+rayon = "1"
 tauri-plugin-dialog = "2"

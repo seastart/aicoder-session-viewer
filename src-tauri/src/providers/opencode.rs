@@ -5,7 +5,7 @@ use rusqlite::Connection;
 
 use crate::error::{AppError, AppResult};
 use crate::models::*;
-use crate::providers::SessionProvider;
+use crate::providers::{search, SessionProvider};
 
 /// OpenCode 数据源
 ///
@@ -326,47 +326,68 @@ impl SessionProvider for OpenCodeProvider {
         Ok(Session { summary, messages })
     }
 
-    fn search_sessions(&self, query: &str) -> AppResult<Vec<SessionSummary>> {
-        let conn = self.open_db()?;
-        let pattern = format!("%{}%", query);
+    fn search_sessions(
+        &self,
+        query: &str,
+        include_content: bool,
+    ) -> AppResult<Vec<SessionSummary>> {
+        let all = self.list_sessions()?;
+        // 内容命中集合（仅深度搜索时查询）
+        let matched_ids = if include_content {
+            self.content_matched_session_ids(query)?
+        } else {
+            std::collections::HashSet::new()
+        };
 
+        Ok(all
+            .into_iter()
+            .filter(|s| {
+                // 先匹配标题/项目路径（便宜），再看会话内容是否命中
+                search::contains_ci(&s.title, query)
+                    || s.project_path
+                        .as_deref()
+                        .is_some_and(|p| search::contains_ci(p, query))
+                    || matched_ids.contains(&s.id)
+            })
+            .collect())
+    }
+}
+
+impl OpenCodeProvider {
+    /// 返回会话内容命中关键字的 session id 集合
+    ///
+    /// SQL 层先按 part 类型过滤掉工具结果等高噪音内容（也顺带减少数据传输量），
+    /// 再在 Rust 侧解析为 ContentBlock，复用与其他 provider 一致的块级匹配逻辑
+    fn content_matched_session_ids(
+        &self,
+        query: &str,
+    ) -> AppResult<std::collections::HashSet<String>> {
+        let conn = self.open_db()?;
         let mut stmt = conn.prepare(
-            "SELECT s.id, s.title, s.directory, s.time_created,
-                    (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) as msg_count,
-                    (SELECT MAX(m.time_created) FROM message m WHERE m.session_id = s.id) as last_msg_time
-             FROM session s
-             WHERE s.title LIKE ?1 OR s.directory LIKE ?1
-             ORDER BY COALESCE(last_msg_time, s.time_created) DESC",
+            "SELECT session_id, data FROM part
+             WHERE json_extract(data, '$.type') NOT IN
+                   ('tool-result', 'tool_result', 'file', 'step-start', 'step-finish')",
         )?;
 
-        let summaries = stmt
-            .query_map([&pattern], |row| {
-                let id: String = row.get(0)?;
-                let title: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
-                let directory: Option<String> = row.get(2)?;
-                let time_created: i64 = row.get(3)?;
-                let msg_count: usize = row.get(4)?;
-                let last_msg_time: Option<i64> = row.get(5)?;
-
-                Ok(SessionSummary {
-                    id,
-                    tool: ToolKind::OpenCode,
-                    title: if title.is_empty() {
-                        "OpenCode Session".to_string()
-                    } else {
-                        title
-                    },
-                    project_path: directory,
-                    started_at: Some(Self::millis_to_datetime(time_created)),
-                    updated_at: last_msg_time.map(Self::millis_to_datetime),
-                    message_count: msg_count,
-                    total_tokens: None,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        Ok(summaries)
+        let mut matched = std::collections::HashSet::new();
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for (session_id, data) in rows.flatten() {
+            if matched.contains(&session_id) {
+                continue;
+            }
+            // 原始 JSON 预筛，未命中关键字的 part 直接跳过、不解析
+            if !search::contains_ci(&data, query) {
+                continue;
+            }
+            if let Some(block) = Self::parse_part_data(&data) {
+                if search::block_matches_query(&block, query) {
+                    matched.insert(session_id);
+                }
+            }
+        }
+        Ok(matched)
     }
 }
 

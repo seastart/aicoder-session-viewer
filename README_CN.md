@@ -31,7 +31,7 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 - **多工具支持** — Claude Code、Codex、Gemini CLI、OpenCode
 - **统一数据模型** — 所有格式在 Rust 侧归一化后再传给前端
 - **丰富的内容渲染** — Markdown、Shiki 语法高亮代码块、可折叠的工具调用/思考过程，以及支持点击放大的图片附件
-- **搜索与导航** — 按工具类型筛选，按标题或项目路径搜索（300ms 防抖），也支持在当前对话内搜索
+- **搜索与导航** — 按工具类型筛选，标题/路径实时搜索（300ms 防抖），停止输入 1s 后自动升级为会话内容全文搜索（正文 / 思考过程 / 工具调用参数），按 Enter 可立即触发，也支持在当前对话内搜索
 - **项目分组** — 按项目路径将 session 分组为可折叠的文件夹树，支持列表/分组视图切换
 - **Token 用量汇总** — 当源数据包含 usage 信息时，展示单条消息和整个 session 的 token 用量
 - **Subagent 下钻** — 展开 Claude Code 的 `Agent` 工具调用，并懒加载对应 subagent 对话

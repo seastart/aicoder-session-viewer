@@ -86,7 +86,7 @@ const zh: Locale = {
   loading: "加载中...",
   all: "全部",
   appTitle: "AICoder Session Viewer",
-  searchPlaceholder: "搜索 session...",
+  searchPlaceholder: "搜索标题 / 路径 / 会话内容...",
   noSessions: "未找到 session",
   selectSession: "选择一个 session 查看对话",
   messageCount: (n) => `${n} 条消息`,

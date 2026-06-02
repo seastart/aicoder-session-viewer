@@ -8,7 +8,7 @@ const en: Locale = {
 
   // 侧边栏
   appTitle: "AICoder Session Viewer",
-  searchPlaceholder: "Search sessions...",
+  searchPlaceholder: "Search title, path, or content...",
   noSessions: "No sessions found",
 
   // 聊天区

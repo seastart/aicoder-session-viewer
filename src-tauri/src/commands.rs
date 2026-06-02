@@ -56,14 +56,21 @@ pub fn get_subagent_messages(
 }
 
 /// 搜索 session
+///
+/// `include_content` 为 true 时额外做会话内容全文搜索（开销大，由前端 Enter 显式触发）；
+/// 缺省 false，只做标题/路径实时匹配
 #[tauri::command]
 pub fn search_sessions(
     query: String,
     tool: Option<String>,
+    include_content: Option<bool>,
     registry: State<Arc<RwLock<ProviderRegistry>>>,
 ) -> AppResult<Vec<SessionSummary>> {
     let tool_kind = tool.and_then(|t| ToolKind::from_str_loose(&t));
-    registry.read().unwrap().search_sessions(&query, tool_kind)
+    registry
+        .read()
+        .unwrap()
+        .search_sessions(&query, tool_kind, include_content.unwrap_or(false))
 }
 
 /// 导出 session 为 JSONL 格式

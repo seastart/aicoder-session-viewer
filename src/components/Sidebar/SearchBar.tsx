@@ -8,12 +8,24 @@ export function SearchBar() {
     useSessionStore();
   const { t } = useLocale();
 
-  // 输入防抖 300ms 后触发搜索
+  // 两级防抖搜索：
+  // 1. 300ms：廉价的标题/路径实时过滤，保证即时反馈
   useDebounce(
     () => {
       searchSessions(searchQuery, toolFilter);
     },
     300,
+    [searchQuery]
+  );
+  // 2. 1s：停止输入后自动升级为会话内容全文搜索
+  //    （与 Enter 等价，用户无需知道快捷键；空查询交由上面的浅搜索回到列表）
+  useDebounce(
+    () => {
+      if (searchQuery.trim()) {
+        searchSessions(searchQuery, toolFilter, true);
+      }
+    },
+    1000,
     [searchQuery]
   );
 
@@ -28,6 +40,12 @@ export function SearchBar() {
         placeholder={t.searchPlaceholder}
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
+        onKeyDown={(e) => {
+          // Enter 立即触发会话内容全文搜索（不必等 1s 自动升级）
+          if (e.key === "Enter" && searchQuery.trim()) {
+            searchSessions(searchQuery, toolFilter, true);
+          }
+        }}
         className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-8 text-sm
                    text-text-primary placeholder:text-text-muted
                    focus:border-accent focus:outline-none"

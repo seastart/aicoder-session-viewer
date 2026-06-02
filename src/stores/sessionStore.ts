@@ -23,6 +23,8 @@ interface SessionState {
   // 过滤
   toolFilter: ToolKind | null;
   searchQuery: string;
+  /** 最近一次搜索是否包含会话内容（Enter 深搜索）；切换工具筛选时按相同模式重放 */
+  lastSearchIncludedContent: boolean;
 
   // 视图模式
   viewMode: ViewMode;
@@ -37,7 +39,12 @@ interface SessionState {
   selectSession: (tool: ToolKind, sessionId: string) => Promise<void>;
   setToolFilter: (tool: ToolKind | null) => void;
   setSearchQuery: (query: string) => void;
-  searchSessions: (query: string, tool?: ToolKind | null) => Promise<void>;
+  /** includeContent 为 true 时做会话内容全文搜索（开销大，由 Enter 显式触发） */
+  searchSessions: (
+    query: string,
+    tool?: ToolKind | null,
+    includeContent?: boolean
+  ) => Promise<void>;
   setViewMode: (mode: ViewMode) => void;
   togglePathExpanded: (path: string) => void;
   loadProviderConfig: () => Promise<void>;
@@ -54,6 +61,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
   toolFilter: null,
   searchQuery: "",
+  lastSearchIncludedContent: false,
   viewMode: "grouped",
   expandedPaths: new Set<string>(),
   providerConfig: null,
@@ -98,27 +106,42 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setToolFilter: (tool) => {
     // 切换 filter 时立即清空旧列表，避免展示不属于当前 filter 的数据
     set({ toolFilter: tool, sessions: [] });
-    get().fetchSessions();
+    const { searchQuery, lastSearchIncludedContent } = get();
+    if (searchQuery.trim()) {
+      // 有搜索关键词时按原模式（浅/深）重放搜索，保持过滤结果一致
+      get().searchSessions(searchQuery, tool, lastSearchIncludedContent);
+    } else {
+      get().fetchSessions();
+    }
   },
 
   setSearchQuery: (query) => {
     set({ searchQuery: query });
   },
 
-  searchSessions: async (query, tool) => {
+  searchSessions: async (query, tool, includeContent = false) => {
     if (!query.trim()) {
       get().fetchSessions();
       return;
     }
-    set({ loading: true, error: null });
+    // 复用 fetchRequestId 防竞态：深度搜索耗时较长，
+    // 防止其过期结果覆盖后续更新的实时搜索/列表请求
+    const requestId = ++fetchRequestId;
+    // 记录本次搜索模式，供切换工具筛选时按相同模式重放
+    set({ loading: true, error: null, lastSearchIncludedContent: includeContent });
     try {
       const sessions: SessionSummary[] = await invoke("search_sessions", {
         query,
         tool: tool ?? null,
+        includeContent,
       });
-      set({ sessions, loading: false });
+      if (requestId === fetchRequestId) {
+        set({ sessions, loading: false });
+      }
     } catch (e) {
-      set({ error: String(e), loading: false });
+      if (requestId === fetchRequestId) {
+        set({ error: String(e), loading: false });
+      }
     }
   },
 
