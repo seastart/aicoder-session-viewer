@@ -37,7 +37,8 @@ Download the `.exe` / `.msi` (Windows) or `.deb` / `.AppImage` (Linux) from the 
 - **Subagent drill-down** — Expand Claude Code `Agent` tool calls and lazy-load their subagent conversation
 - **Resume, new session & scheduled continue** — Resume any historical session, start a new session from a project folder, or wait until the reset time and then resume with `continue`
 - **YOLO launch mode** — Hold Option/Alt or use the context menu to resume/start supported tools with their unattended approval flags
-- **Export** — Export sessions as JSONL or Markdown via save dialog
+- **View as web page** — One click opens the session as a **self-contained HTML page** in your default browser: full Markdown rendering, collapsible thinking/tool blocks, a light/dark toggle, and an asymmetric chat layout (you on the right, the assistant on the left; tool results shown as tool output rather than "user" turns). Crucially, **all images are embedded inline as base64** — including images referenced by local file path (e.g. Codex-generated posters) and pasted screenshots — so the single file renders every image with no missing resources when sent to a colleague or shown on a projector (per-image cap 10 MB)
+- **Export** — Export sessions as JSONL, Markdown, or self-contained HTML (same inline-image rendering as above) via save dialog
 - **Lightweight i18n** — Automatically follows the system/browser language, with `VITE_LOCALE=zh|en` override support
 - **Dark theme** — Purpose-built dark UI with per-tool color coding
 - **Fast & lightweight** — Native Tauri app with minimal resource usage; SQLite accessed read-only
@@ -152,7 +153,7 @@ aicoder-session-viewer/
 │       ├── error.rs            # Unified error types (thiserror)
 │       ├── models.rs           # Shared data models (SessionSummary, Message, ContentBlock...)
 │       ├── commands.rs         # Tauri IPC commands
-│       ├── export.rs           # Session export (JSONL / Markdown)
+│       ├── export.rs           # Session export (JSONL / Markdown / self-contained HTML)
 │       └── providers/          # Data source implementations
 │           ├── mod.rs          # SessionProvider trait + ProviderRegistry
 │           ├── claude.rs       # Claude Code (JSONL)
@@ -184,7 +185,7 @@ aicoder-session-viewer/
 │       │   ├── SessionList.tsx  # Flat session list
 │       │   └── ProjectTree.tsx  # Grouped project folder tree + new session launcher
 │       └── Chat/
-│           ├── ChatView.tsx     # Session detail + search + resume + export buttons
+│           ├── ChatView.tsx     # Session detail + search + resume + web view + export buttons
 │           ├── MessageBubble.tsx # Message rendering (all content block types)
 │           ├── CodeBlock.tsx    # Shiki syntax highlighting
 │           └── ToolCallBlock.tsx # Collapsible tool use/result blocks + subagent drill-down

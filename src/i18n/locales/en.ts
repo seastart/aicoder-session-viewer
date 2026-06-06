@@ -28,6 +28,7 @@ const en: Locale = {
   roleUser: "User",
   roleSystem: "System",
   roleAssistant: "Assistant",
+  roleToolResult: "Tool Result",
 
   // 思考过程
   thinkingProcess: "Thinking",
@@ -48,9 +49,11 @@ const en: Locale = {
   // 导出
   exportJsonl: "Export JSONL",
   exportMarkdown: "Export Markdown",
+  exportHtml: "Export HTML",
   exportSuccess: "Exported successfully",
   exportError: (err: string) => `Export failed: ${err}`,
   export: "Export",
+  viewInBrowser: "View as Web Page",
 
   // 恢复会话
   resumeSession: "Resume Session",

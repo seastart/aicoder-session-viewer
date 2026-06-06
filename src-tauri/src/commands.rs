@@ -105,6 +105,66 @@ pub fn export_session_markdown(
     Ok(())
 }
 
+/// 生成 session 的 HTML 网页，写入临时文件并用默认浏览器打开
+///
+/// 用于把对话记录分享给同事 / 投屏讲解：生成自包含单文件 HTML（CSS/JS 内联、图片内嵌），
+/// 写到系统临时目录后调用 opener 在默认浏览器中打开。
+#[tauri::command]
+pub fn open_session_in_browser(
+    app: AppHandle,
+    tool: String,
+    session_id: String,
+    registry: State<Arc<RwLock<ProviderRegistry>>>,
+) -> AppResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let tool_kind = ToolKind::from_str_loose(&tool)
+        .ok_or_else(|| AppError::Provider(format!("未知工具类型: {}", tool)))?;
+    let session = registry.read().unwrap().get_session(tool_kind, &session_id)?;
+    let content = crate::export::to_html(&session);
+
+    // 文件名带上 tool + session_id，避免多个 session 互相覆盖；
+    // session_id 可能含路径分隔符等非法字符，做一次清洗。
+    let safe_id: String = session_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let file_name = format!("session-{}-{}.html", tool, safe_id);
+    let path = std::env::temp_dir().join(file_name);
+    std::fs::write(&path, content)?;
+
+    app.opener()
+        .open_path(path.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| AppError::Provider(format!("打开浏览器失败: {}", e)))?;
+    Ok(())
+}
+
+/// 导出 session 为 HTML 网页文件（自包含：Markdown 渲染 + 图片 base64 内嵌）
+#[tauri::command]
+pub fn export_session_html(
+    tool: String,
+    session_id: String,
+    save_path: String,
+    registry: State<Arc<RwLock<ProviderRegistry>>>,
+) -> AppResult<()> {
+    let tool_kind = ToolKind::from_str_loose(&tool)
+        .ok_or_else(|| AppError::Provider(format!("未知工具类型: {}", tool)))?;
+    let session = registry.read().unwrap().get_session(tool_kind, &session_id)?;
+    let content = crate::export::to_html(&session);
+    std::fs::write(&save_path, content)?;
+    Ok(())
+}
+
+/// 读取本地图片文件并返回 data URI，供前端显示
+///
+/// Codex 等工具会用绝对路径（Markdown `![](/abs/path.png)`）引用生成的图片，
+/// 这类路径在 webview 里无法直接加载，故由后端读取并 base64 编码后返回。
+/// 文件不存在/过大/读失败时返回 None，前端据此显示占位。
+#[tauri::command]
+pub fn read_image_data_uri(path: String) -> Option<String> {
+    crate::export::read_image_as_data_uri(&path)
+}
+
 /// 恢复历史 session（在系统终端中启动对应 AI 工具并 resume）
 ///
 /// `bypass_permissions = true` 时启动 YOLO 模式：跳过工具的权限确认提示。

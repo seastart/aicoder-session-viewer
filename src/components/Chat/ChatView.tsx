@@ -17,10 +17,12 @@ import {
   MessageSquare,
   Play,
   Download,
+  Eye,
   ChevronDown,
   ChevronUp,
   FileText,
   FileJson,
+  FileCode,
   Zap,
   Search,
   X,
@@ -218,6 +220,37 @@ export function ChatView() {
     }
   };
 
+  /** 导出为 HTML 网页文件（自包含：Markdown 渲染 + 图片 base64 内嵌） */
+  const handleExportHtml = async () => {
+    const fileName = buildExportFileName(summary, "html");
+    const path = await save({
+      defaultPath: fileName,
+      filters: [{ name: "HTML", extensions: ["html"] }],
+    });
+    if (!path) return;
+    try {
+      await invoke("export_session_html", {
+        tool: summary.tool,
+        sessionId: summary.id,
+        savePath: path,
+      });
+    } catch (err) {
+      console.error("Export HTML failed:", err);
+    }
+  };
+
+  /** 网页查看：后端生成自包含 HTML 并用默认浏览器打开 */
+  const handleOpenInBrowser = async () => {
+    try {
+      await invoke("open_session_in_browser", {
+        tool: summary.tool,
+        sessionId: summary.id,
+      });
+    } catch (err) {
+      console.error("Open in browser failed:", err);
+    }
+  };
+
   const scrollToTop = () => {
     scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -314,6 +347,18 @@ export function ChatView() {
               </button>
             )}
 
+            {/* 在浏览器中查看 */}
+            <button
+              onClick={handleOpenInBrowser}
+              className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+              title={t.viewInBrowser}
+            >
+              <Eye size={12} />
+              <span className="hidden whitespace-nowrap md:inline">
+                {t.viewInBrowser}
+              </span>
+            </button>
+
             {/* 导出下拉菜单 */}
             <div className="relative shrink-0">
               <button
@@ -343,6 +388,13 @@ export function ChatView() {
                   >
                     <FileText size={14} />
                     {t.exportMarkdown}
+                  </button>
+                  <button
+                    onClick={handleExportHtml}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-primary hover:bg-surface-hover transition-colors"
+                  >
+                    <FileCode size={14} />
+                    {t.exportHtml}
                   </button>
                 </div>
               )}
@@ -494,7 +546,7 @@ export function ChatView() {
 
 function buildExportFileName(
   summary: SessionSummary,
-  extension: "jsonl" | "md",
+  extension: "jsonl" | "md" | "html",
 ): string {
   const parts = [toolSlug(summary.tool)];
   const timePart = formatExportTime(summary.started_at);

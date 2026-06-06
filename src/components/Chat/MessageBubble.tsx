@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
 import { clsx } from "clsx";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { User, Bot, ChevronRight, ChevronDown, Brain, X } from "lucide-react";
+import { User, Bot, Wrench, ChevronRight, ChevronDown, Brain, X } from "lucide-react";
 import { format, type Locale as DateFnsLocale } from "date-fns";
 import type { Message, ContentBlock, TokenUsage } from "../../types";
 import { CodeBlock } from "./CodeBlock";
@@ -27,9 +28,22 @@ export function MessageBubble({
   activeSearchMatch = false,
 }: Props) {
   const { t, dateLocale } = useLocale();
-  const isUser = message.role === "user";
-  const isSystem = message.role === "system";
   const messageTime = formatMessageTime(message.timestamp, dateLocale);
+
+  // 渲染按「内容」而非「role」判定：工具结果在协议上被塞进 user 回合，
+  // 但它是工具输出、不是人在说话。若一条 user/tool 回合不含任何人类输入
+  // （文本/代码/图片）、只有工具结果，则视为「工具输出」回合，用中性样式而非 User。
+  const hasHumanInput = message.content.some(
+    (b) => b.type === "text" || b.type === "code" || b.type === "image",
+  );
+  const hasToolResult = message.content.some((b) => b.type === "tool_result");
+  const isToolOutput =
+    (message.role === "user" || message.role === "tool") &&
+    !hasHumanInput &&
+    hasToolResult;
+
+  const isUser = message.role === "user" && !isToolOutput;
+  const isSystem = message.role === "system";
 
   return (
     <div
@@ -50,12 +64,18 @@ export function MessageBubble({
           "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
           isUser
             ? "bg-accent/20 text-accent"
-            : isSystem
+            : isToolOutput || isSystem
               ? "bg-text-muted/20 text-text-muted"
               : "bg-success/20 text-success"
         )}
       >
-        {isUser ? <User size={14} /> : <Bot size={14} />}
+        {isUser ? (
+          <User size={14} />
+        ) : isToolOutput ? (
+          <Wrench size={14} />
+        ) : (
+          <Bot size={14} />
+        )}
       </div>
 
       {/* 内容 */}
@@ -63,7 +83,13 @@ export function MessageBubble({
         {/* 角色 + 模型 + 时间 */}
         <div className="mb-1 flex items-center gap-2 text-xs text-text-muted">
           <span className="font-medium">
-            {isUser ? t.roleUser : isSystem ? t.roleSystem : t.roleAssistant}
+            {isUser
+              ? t.roleUser
+              : isToolOutput
+                ? t.roleToolResult
+                : isSystem
+                  ? t.roleSystem
+                  : t.roleAssistant}
           </span>
           {message.model && (
             <span className="rounded bg-surface px-1.5 py-0.5 text-[10px]">
@@ -137,16 +163,63 @@ function ContentBlockRenderer({ block, sessionId }: { block: ContentBlock; sessi
 }
 
 /**
+ * 是否疑似裸 base64 数据：足够长且仅由 base64 字符集组成。
+ * 注意 base64 字符集本身包含 '/'，故不能用「是否含 '/'」来区分路径，
+ * 必须用字符集判定（文件路径含 '.'、'-'、中文等非 base64 字符）。
+ */
+function isProbablyBase64(s: string): boolean {
+  return s.length > 200 && /^[A-Za-z0-9+/=\s]+$/.test(s);
+}
+
+/**
  * 图片块：缩略展示 + 点击放大查看
  *
- * 后端可能传入完整 data URI（source 以 "data:" 开头），
- * 也可能只传 base64 数据，此时需要拼接 mediaType 自行构造 data URI。
+ * source 可能是：
+ * - 完整 data URI（以 "data:" 开头）或 http(s) URL → 直接使用
+ * - 本地文件路径（如 Codex 生成图片的绝对路径）→ webview 无法直接加载，
+ *   调用后端 read_image_data_uri 读取并转成 data URI
+ * - 裸 base64 数据 → 拼接 mediaType 构造 data URI
  */
 function ImageBlock({ source, mediaType }: { source: string; mediaType?: string | null }) {
   const [zoomed, setZoomed] = useState(false);
-  const src = source.startsWith("data:")
-    ? source
-    : `data:${mediaType ?? "image/png"};base64,${source}`;
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  // 解析 source 为可显示的 src
+  useEffect(() => {
+    let cancelled = false;
+    setFailed(false);
+    setSrc(null);
+
+    if (
+      source.startsWith("data:") ||
+      source.startsWith("http://") ||
+      source.startsWith("https://")
+    ) {
+      setSrc(source);
+    } else if (isProbablyBase64(source)) {
+      // 裸 base64（优先于路径判定：base64 含 '/'，不能按路径处理）
+      setSrc(`data:${mediaType ?? "image/png"};base64,${source}`);
+    } else {
+      // 其余视为本地文件路径，交后端读取为 data URI
+      const path = source.startsWith("file://")
+        ? source.slice("file://".length)
+        : source;
+      invoke<string | null>("read_image_data_uri", { path })
+        .then((uri) => {
+          if (cancelled) return;
+          if (uri) setSrc(uri);
+          else setFailed(true);
+        })
+        .catch(() => {
+          if (!cancelled) setFailed(true);
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [source, mediaType]);
 
   // 打开放大态时禁用页面滚动并支持 Esc 关闭
   useEffect(() => {
@@ -162,6 +235,15 @@ function ImageBlock({ source, mediaType }: { source: string; mediaType?: string 
       document.body.style.overflow = prevOverflow;
     };
   }, [zoomed]);
+
+  if (failed) {
+    return (
+      <span className="text-xs italic text-text-muted">[图片无法加载]</span>
+    );
+  }
+  if (!src) {
+    return <span className="text-xs text-text-muted">加载图片…</span>;
+  }
 
   return (
     <>
@@ -218,6 +300,11 @@ function MarkdownContent({ text }: { text: string }) {
         remarkPlugins={[remarkGfm]}
         children={text}
         components={{
+          // 图片拦截：本地路径（如 Codex 生成图片）经后端读取为 data URI 显示
+          img({ src }) {
+            if (!src || typeof src !== "string") return null;
+            return <ImageBlock source={src} />;
+          },
           // 代码块拦截：提取语言并用 CodeBlock 渲染
           code({ className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || "");

@@ -37,7 +37,8 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 - **Subagent 下钻** — 展开 Claude Code 的 `Agent` 工具调用，并懒加载对应 subagent 对话
 - **恢复、新建与定时继续** — 既可恢复历史 session，也可从项目文件夹新建 session，或等待到 reset 时间后自动恢复并附带 `continue`
 - **YOLO 启动模式** — 按住 Option/Alt 或使用右键菜单，可用无人值守权限参数恢复/新建支持的工具
-- **导出** — 支持将 session 导出为 JSONL 或 Markdown 格式
+- **网页查看** — 一键将 session 在默认浏览器中以**自包含 HTML** 打开：完整 Markdown 渲染、可折叠的思考/工具块、深浅色切换，以及左右不对称的聊天布局（你在右、助手在左；工具结果按「工具输出」展示而非「用户」回合）。关键是**所有图片都以 base64 内嵌**——包括用本地路径引用的图片（如 Codex 生成的海报）和粘贴的截图——因此单个文件即可完整呈现所有图片，发给同事或投屏讲解都不丢资源（单图上限 10 MB）
+- **导出** — 支持将 session 导出为 JSONL、Markdown 或自包含 HTML（图片内嵌方式同上）
 - **轻量中英文切换** — 默认跟随系统/浏览器语言，也支持通过 `VITE_LOCALE=zh|en` 覆盖
 - **暗色主题** — 专为阅读对话设计的暗色 UI，每种工具有独立配色
 - **快速轻量** — 原生 Tauri 应用，资源占用低；SQLite 只读访问
@@ -151,7 +152,7 @@ aicoder-session-viewer/
 │       ├── error.rs            # 统一错误类型（thiserror）
 │       ├── models.rs           # 共享数据模型（SessionSummary、Message、ContentBlock 等）
 │       ├── commands.rs         # Tauri IPC 命令
-│       ├── export.rs           # Session 导出（JSONL / Markdown）
+│       ├── export.rs           # Session 导出（JSONL / Markdown / 自包含 HTML）
 │       └── providers/          # 数据源实现
 │           ├── mod.rs          # SessionProvider trait + ProviderRegistry
 │           ├── claude.rs       # Claude Code（JSONL）
@@ -183,7 +184,7 @@ aicoder-session-viewer/
 │       │   ├── SessionList.tsx  # 扁平 Session 列表
 │       │   └── ProjectTree.tsx  # 项目分组文件夹树 + 新建会话入口
 │       └── Chat/
-│           ├── ChatView.tsx     # Session 详情 + 对话搜索 + 恢复/导出按钮
+│           ├── ChatView.tsx     # Session 详情 + 对话搜索 + 恢复 + 网页查看/导出按钮
 │           ├── MessageBubble.tsx # 消息渲染（支持所有内容块类型）
 │           ├── CodeBlock.tsx    # Shiki 语法高亮
 │           └── ToolCallBlock.tsx # 可折叠的工具调用/结果块 + subagent 下钻

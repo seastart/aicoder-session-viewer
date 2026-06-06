@@ -1,6 +1,6 @@
 [package]
 name = "aicoder-session-viewer"
-version = "0.1.12"
+version = "0.1.13"
 description = "Unified AI coding assistant session viewer"
 authors = ["you"]
 edition = "2021"
@@ -31,3 +31,6 @@ walkdir = "2"
 memchr = "2"
 rayon = "1"
 tauri-plugin-dialog = "2"
+# Markdown 渲染（HTML 导出）+ 图片 base64 内嵌
+pulldown-cmark = "0.12"
+base64 = "0.22"

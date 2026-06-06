@@ -25,6 +25,7 @@ export interface Locale {
   roleUser: string;
   roleSystem: string;
   roleAssistant: string;
+  roleToolResult: string;
 
   // 思考过程
   thinkingProcess: string;
@@ -45,9 +46,11 @@ export interface Locale {
   // 导出
   exportJsonl: string;
   exportMarkdown: string;
+  exportHtml: string;
   exportSuccess: string;
   exportError: (err: string) => string;
   export: string;
+  viewInBrowser: string;
 
   // 恢复会话
   resumeSession: string;
@@ -102,6 +105,7 @@ const zh: Locale = {
   roleUser: "User",
   roleSystem: "System",
   roleAssistant: "Assistant",
+  roleToolResult: "工具结果",
   thinkingProcess: "思考过程",
   toolResult: "工具结果",
   errorResult: "错误结果",
@@ -116,9 +120,11 @@ const zh: Locale = {
   // 导出
   exportJsonl: "导出 JSONL",
   exportMarkdown: "导出 Markdown",
+  exportHtml: "导出 HTML",
   exportSuccess: "导出成功",
   exportError: (err) => `导出失败: ${err}`,
   export: "导出",
+  viewInBrowser: "网页查看",
 
   // 恢复会话
   resumeSession: "恢复会话",

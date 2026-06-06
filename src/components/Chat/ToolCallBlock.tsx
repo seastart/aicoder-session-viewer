@@ -132,13 +132,27 @@ function SubagentConversation({
 /** 简化版的 subagent 消息渲染 */
 function SubagentMessage({ message }: { message: Message }) {
   const { t } = useLocale();
-  const isUser = message.role === "user";
+
+  // 与主聊天视图一致：只含工具结果的回合视为「工具输出」，不标成给子代理的提示
+  const hasHumanInput = message.content.some(
+    (b) => b.type === "text" || b.type === "code" || b.type === "image",
+  );
+  const hasToolResult = message.content.some((b) => b.type === "tool_result");
+  const isToolOutput =
+    (message.role === "user" || message.role === "tool") &&
+    !hasHumanInput &&
+    hasToolResult;
+  const isUser = message.role === "user" && !isToolOutput;
 
   return (
     <div className={clsx("px-3 py-2 text-xs", isUser ? "bg-user-bubble/10" : "")}>
       <div className="flex items-center gap-1.5 mb-0.5 text-text-muted">
         <span className="font-medium text-[10px]">
-          {isUser ? t.subagentPrompt : t.subagentAgent}
+          {isUser
+            ? t.subagentPrompt
+            : isToolOutput
+              ? t.roleToolResult
+              : t.subagentAgent}
         </span>
         {message.model && (
           <span className="rounded bg-surface px-1 py-0.5 text-[9px]">
