@@ -1,6 +1,6 @@
 # AICoder Session Viewer
 
-一个统一的桌面应用，用于浏览多种 AI 编码助手的对话历史 —— **Claude Code**、**Codex**、**Gemini CLI** 和 **OpenCode**，集中在一个界面查看。
+一个统一的桌面应用，用于浏览多种 AI 编码助手的对话历史 —— **Claude Code**、**Codex**、**Gemini CLI**、**Antigravity CLI** 和 **OpenCode**，集中在一个界面查看。
 
 [English](./README.md)
 
@@ -28,7 +28,7 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 
 ## 功能特性
 
-- **多工具支持** — Claude Code、Codex、Gemini CLI、OpenCode
+- **多工具支持** — Claude Code、Codex、Gemini CLI、Antigravity CLI、OpenCode
 - **统一数据模型** — 所有格式在 Rust 侧归一化后再传给前端
 - **丰富的内容渲染** — Markdown、Shiki 语法高亮代码块、可折叠的工具调用/思考过程，以及支持点击放大的图片附件
 - **搜索与导航** — 按工具类型筛选，标题/路径实时搜索（300ms 防抖），停止输入 1s 后自动升级为会话内容全文搜索（正文 / 思考过程 / 工具调用参数），按 Enter 可立即触发，也支持在当前对话内搜索
@@ -49,10 +49,15 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 |------|--------------|---------|------|
 | Claude Code | `~/.claude/projects/{path}/{uuid}.jsonl` | `%USERPROFILE%\.claude\projects\...` | JSONL（索引在 `~/.claude/sessions/*.json`）|
 | Codex | `~/.codex/sessions/{Y}/{M}/{D}/rollout-*.jsonl` | `%USERPROFILE%\.codex\sessions\...` | JSONL |
-| Gemini CLI | `~/.gemini/tmp/{project}/chats/session-*.json` | `%USERPROFILE%\.gemini\tmp\...` | JSON |
+| Gemini CLI（legacy） | `~/.gemini/tmp/{project}/chats/session-*.json` | `%USERPROFILE%\.gemini\tmp\...` | JSON |
+| Antigravity CLI | `~/.gemini/antigravity-cli/brain/{conversation-id}/.system_generated/logs/transcript.jsonl` | `%USERPROFILE%\.gemini\antigravity-cli\brain\...\transcript.jsonl` | JSONL |
 | OpenCode | `~/.local/share/opencode/opencode.db` | `%USERPROFILE%\.local\share\opencode\opencode.db` | SQLite |
 
-> 四款工具在所有平台上均以用户主目录（`~` / `%USERPROFILE%`）为根目录，目录结构跨平台一致。
+Gemini CLI 和 Antigravity CLI 是两个独立 provider。旧 Gemini provider 继续读取 `~/.gemini/tmp/.../session-*.json`；Antigravity provider 读取 `~/.gemini/antigravity-cli` 下自己的 transcript JSONL。Antigravity 的 `history.jsonl` 和 `cache/last_conversations.json` 只用于在可用时补充项目/workspace 路径；应用不会解析 Antigravity 内部 SQLite/BLOB 状态。
+
+Google 的迁移背景文档见：<https://antigravity.google/docs/gcli-migration>。
+
+> 支持的工具均以用户主目录（`~` / `%USERPROFILE%`）为根目录；底层 CLI 支持同样布局时，目录结构跨平台一致。
 
 ## 自定义数据源路径
 
@@ -71,7 +76,7 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 
 ## 定时继续策略
 
-当 Claude Code、Codex、Gemini CLI 或 OpenCode 出现配额提示，例如 `You've hit your limit · resets 1am (Asia/Shanghai)` 或 `try again at 1:35 PM` 时，支持定时自动继续：
+当 Claude Code、Codex、Gemini CLI、Antigravity CLI 或 OpenCode 出现配额提示，例如 `You've hit your limit · resets 1am (Asia/Shanghai)` 或 `try again at 1:35 PM` 时，支持定时自动继续：
 
 1. 从当前 session 的最近消息里推断 reset 时间，当前会识别 `resets ...`、`try again at ...`、`available again at ...` 等文案；如果没解析到，就回退到本地时区的下一个 `01:00`。
 2. 在推断出的解禁时间基础上，统一再增加 5 分钟缓冲，避免踩在整点或解禁瞬间。
@@ -84,6 +89,7 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 - Claude Code: `claude --permission-mode bypassPermissions --resume <session-id> "continue"`
 - Codex: `codex resume --dangerously-bypass-approvals-and-sandbox <session-id> "continue"`
 - Gemini CLI: `gemini --approval-mode yolo --resume <session-id> "continue"`
+- Antigravity CLI: `agy --dangerously-skip-permissions --conversation <conversation-id> --prompt-interactive "continue"`
 - OpenCode: `opencode --session <session-id> --prompt "continue"`
 
 这个策略的本质是“在正确时间点重新发起一次原生恢复请求”，而不是“接管正在运行的旧终端”。前者依赖 CLI 官方支持的 `resume + prompt` 能力；如果 CLI 还支持无人值守权限模式，就一并带上，避免恢复后又停在审批弹窗上。
@@ -99,7 +105,7 @@ xattr -cr /Applications/AICoder\ Session\ Viewer.app
 | 按住 `Option` / `Alt` 点击恢复会话 | Session 详情 | 在支持的工具上以 YOLO / 无人值守权限模式恢复 |
 | 按住 `Option` / `Alt` 点击新建会话 | 项目树 | 在支持的工具上以 YOLO / 无人值守权限模式新建 |
 
-OpenCode 当前 CLI 暂未暴露无人值守权限参数，因此会忽略 YOLO 模式。
+OpenCode 当前 CLI 暂未暴露无人值守权限参数，因此会忽略 YOLO 模式。Antigravity CLI 的 YOLO 模式使用 `agy --dangerously-skip-permissions`，普通恢复使用 `agy --conversation <conversation-id>`。
 
 ## 技术栈
 
@@ -218,13 +224,16 @@ aicoder-session-viewer/
 │  │  │Claude │ │ Codex │   │   → SessionSummary         │
 │  │  └───────┘ └───────┘   │   → Session                │
 │  │  ┌───────┐ ┌────────┐  │   → Message                │
-│  │  │Gemini │ │OpenCode│  │   → ContentBlock           │
+│  │  │Gemini │ │  AGY   │  │   → ContentBlock           │
 │  │  └───────┘ └────────┘  │                            │
+│  │  ┌────────┐            │                            │
+│  │  │OpenCode│            │                            │
+│  │  └────────┘            │                            │
 │  └─────────────────────────┘                            │
 └─────────────────────────────────────────────────────────┘
 ```
 
-四种数据源均实现 `SessionProvider` trait，归一化为统一模型后传给前端。如果某个 Provider 不可用（如目录不存在），会被静默跳过，不影响其他工具的正常显示。
+所有数据源均实现 `SessionProvider` trait，归一化为统一模型后传给前端。如果某个 Provider 不可用（如目录不存在），会被静默跳过，不影响其他工具的正常显示。
 
 ## 许可证
 

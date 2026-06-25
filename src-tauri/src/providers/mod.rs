@@ -1,3 +1,4 @@
+pub mod antigravity;
 pub mod claude;
 pub mod codex;
 pub mod gemini;
@@ -88,6 +89,10 @@ impl ProviderRegistry {
         match gemini::GeminiProvider::new(paths.gemini.clone()) {
             Ok(p) => providers.push(Box::new(p)),
             Err(e) => warnings.push(format!("Gemini: {}", e)),
+        }
+        match antigravity::AntigravityProvider::new(paths.antigravity.clone()) {
+            Ok(p) => providers.push(Box::new(p)),
+            Err(e) => warnings.push(format!("Antigravity: {}", e)),
         }
         match opencode::OpenCodeProvider::new(paths.opencode.clone()) {
             Ok(p) => providers.push(Box::new(p)),
@@ -190,6 +195,7 @@ impl<T: SessionProvider + ?Sized> ToolKindLabel for T {
             ToolKind::ClaudeCode => "Claude Code",
             ToolKind::Codex => "Codex",
             ToolKind::Gemini => "Gemini",
+            ToolKind::Antigravity => "Antigravity",
             ToolKind::OpenCode => "OpenCode",
         }
     }
@@ -246,13 +252,15 @@ mod tests {
             claude_code: Some(std::path::PathBuf::from("/nonexistent/xyz1")),
             codex: Some(std::path::PathBuf::from("/nonexistent/xyz2")),
             gemini: Some(std::path::PathBuf::from("/nonexistent/xyz3")),
-            opencode: Some(std::path::PathBuf::from("/nonexistent/xyz4")),
+            antigravity: Some(std::path::PathBuf::from("/nonexistent/xyz4")),
+            opencode: Some(std::path::PathBuf::from("/nonexistent/xyz5")),
         };
         let warnings = reg.reload(&bad);
-        assert_eq!(warnings.len(), 4);
+        assert_eq!(warnings.len(), 5);
         assert!(warnings.iter().any(|w| w.starts_with("Claude Code:")));
         assert!(warnings.iter().any(|w| w.starts_with("Codex:")));
         assert!(warnings.iter().any(|w| w.starts_with("Gemini:")));
+        assert!(warnings.iter().any(|w| w.starts_with("Antigravity:")));
         assert!(warnings.iter().any(|w| w.starts_with("OpenCode:")));
     }
 }

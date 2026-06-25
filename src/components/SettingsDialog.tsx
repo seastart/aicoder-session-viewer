@@ -13,7 +13,7 @@ interface Props {
 type ProviderKey = keyof ProviderPaths;
 
 /**
- * 4 个 provider 的元信息：
+ * provider 的元信息：
  * - key:    与 ProviderPaths 的字段一致
  * - label:  界面展示名（保持原样，不走 i18n，类似 ToolFilter 的处理）
  * - isFile: true 表示选文件（OpenCode 的 SQLite），false 表示选目录
@@ -21,8 +21,9 @@ type ProviderKey = keyof ProviderPaths;
 const PROVIDERS: { key: ProviderKey; label: string; isFile: boolean }[] = [
   { key: "claudeCode", label: "Claude Code", isFile: false },
   { key: "codex", label: "Codex", isFile: false },
-  { key: "gemini", label: "Gemini", isFile: false },
+  { key: "antigravity", label: "Antigravity", isFile: false },
   { key: "opencode", label: "OpenCode", isFile: true },
+  { key: "gemini", label: "Gemini", isFile: false },
 ];
 
 export function SettingsDialog({ open, onClose }: Props) {
@@ -36,6 +37,7 @@ export function SettingsDialog({ open, onClose }: Props) {
     claudeCode: "",
     codex: "",
     gemini: "",
+    antigravity: "",
     opencode: "",
   });
   const [saving, setSaving] = useState(false);
@@ -57,6 +59,7 @@ export function SettingsDialog({ open, onClose }: Props) {
           claudeCode: cfg.providerPaths.claudeCode ?? "",
           codex: cfg.providerPaths.codex ?? "",
           gemini: cfg.providerPaths.gemini ?? "",
+          antigravity: cfg.providerPaths.antigravity ?? "",
           opencode: cfg.providerPaths.opencode ?? "",
         });
       }
@@ -100,6 +103,7 @@ export function SettingsDialog({ open, onClose }: Props) {
           claudeCode: draft.claudeCode.trim() || null,
           codex: draft.codex.trim() || null,
           gemini: draft.gemini.trim() || null,
+          antigravity: draft.antigravity.trim() || null,
           opencode: draft.opencode.trim() || null,
         },
       };

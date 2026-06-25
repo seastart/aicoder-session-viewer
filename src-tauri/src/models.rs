@@ -8,6 +8,7 @@ pub enum ToolKind {
     ClaudeCode,
     Codex,
     Gemini,
+    Antigravity,
     OpenCode,
 }
 
@@ -18,6 +19,7 @@ impl ToolKind {
             "claude_code" | "claudecode" | "claude" => Some(Self::ClaudeCode),
             "codex" => Some(Self::Codex),
             "gemini" => Some(Self::Gemini),
+            "antigravity" | "agy" => Some(Self::Antigravity),
             "open_code" | "opencode" => Some(Self::OpenCode),
             _ => None,
         }

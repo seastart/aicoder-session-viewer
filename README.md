@@ -1,6 +1,6 @@
 # AICoder Session Viewer
 
-A unified desktop application for browsing conversation histories from multiple AI coding assistants — **Claude Code**, **Codex**, **Gemini CLI**, and **OpenCode** — all in one place.
+A unified desktop application for browsing conversation histories from multiple AI coding assistants — **Claude Code**, **Codex**, **Gemini CLI**, **Antigravity CLI**, and **OpenCode** — all in one place.
 
 [中文文档](./README_CN.md)
 
@@ -28,7 +28,7 @@ Download the `.exe` / `.msi` (Windows) or `.deb` / `.AppImage` (Linux) from the 
 
 ## Features
 
-- **Multi-tool support** — Claude Code, Codex, Gemini CLI, OpenCode
+- **Multi-tool support** — Claude Code, Codex, Gemini CLI, Antigravity CLI, OpenCode
 - **Unified data model** — All session formats normalized on the Rust side before reaching the frontend
 - **Rich content rendering** — Markdown, syntax-highlighted code blocks (via Shiki), collapsible tool calls/thinking blocks, and image attachments with click-to-zoom preview
 - **Search & navigation** — Filter sessions by tool type, realtime title/path search (300ms debounce) that auto-upgrades to full-text content search (message text, thinking, and tool-call params) 1s after typing stops — or immediately on Enter, and search within the current conversation
@@ -49,10 +49,15 @@ Download the `.exe` / `.msi` (Windows) or `.deb` / `.AppImage` (Linux) from the 
 |------|--------------|---------|--------|
 | Claude Code | `~/.claude/projects/{path}/{uuid}.jsonl` | `%USERPROFILE%\.claude\projects\...` | JSONL (index in `~/.claude/sessions/*.json`) |
 | Codex | `~/.codex/sessions/{Y}/{M}/{D}/rollout-*.jsonl` | `%USERPROFILE%\.codex\sessions\...` | JSONL |
-| Gemini CLI | `~/.gemini/tmp/{project}/chats/session-*.json` | `%USERPROFILE%\.gemini\tmp\...` | JSON |
+| Gemini CLI (legacy) | `~/.gemini/tmp/{project}/chats/session-*.json` | `%USERPROFILE%\.gemini\tmp\...` | JSON |
+| Antigravity CLI | `~/.gemini/antigravity-cli/brain/{conversation-id}/.system_generated/logs/transcript.jsonl` | `%USERPROFILE%\.gemini\antigravity-cli\brain\...\transcript.jsonl` | JSONL |
 | OpenCode | `~/.local/share/opencode/opencode.db` | `%USERPROFILE%\.local\share\opencode\opencode.db` | SQLite |
 
-> All four tools use the user home directory (`~` / `%USERPROFILE%`) as root, with identical directory structures across platforms.
+Gemini CLI and Antigravity CLI are intentionally separate providers. The legacy Gemini provider continues to read `~/.gemini/tmp/.../session-*.json`, while Antigravity reads its own transcript JSONL files under `~/.gemini/antigravity-cli`. Antigravity `history.jsonl` and `cache/last_conversations.json` are used only to enrich project/workspace paths when available; the app does not parse Antigravity's internal SQLite/BLOB state.
+
+See Google's migration background here: <https://antigravity.google/docs/gcli-migration>.
+
+> All supported tools use the user home directory (`~` / `%USERPROFILE%`) as root, with identical directory structures across platforms where the underlying CLI supports the same layout.
 
 ## Custom Data Source Paths
 
@@ -71,7 +76,7 @@ The configuration is persisted at:
 
 ## Scheduled Continue Strategy
 
-When Claude Code, Codex, Gemini CLI, or OpenCode shows a quota message such as `You've hit your limit · resets 1am (Asia/Shanghai)` or `try again at 1:35 PM`, support scheduled continue strategy:
+When Claude Code, Codex, Gemini CLI, Antigravity CLI, or OpenCode shows a quota message such as `You've hit your limit · resets 1am (Asia/Shanghai)` or `try again at 1:35 PM`, support scheduled continue strategy:
 
 1. Infer the reset time from the most recent session messages. The parser currently recognizes phrasings such as `resets ...`, `try again at ...`, and `available again at ...`. If no explicit reset time is found, it falls back to the next local `01:00`.
 2. Add a fixed 5-minute safety buffer on top of the inferred reset time, so the app does not fire exactly at the boundary.
@@ -85,6 +90,7 @@ Current command shapes for scheduled continue:
 - Claude Code: `claude --permission-mode bypassPermissions --resume <session-id> "continue"`
 - Codex: `codex resume --dangerously-bypass-approvals-and-sandbox <session-id> "continue"`
 - Gemini CLI: `gemini --approval-mode yolo --resume <session-id> "continue"`
+- Antigravity CLI: `agy --dangerously-skip-permissions --conversation <conversation-id> --prompt-interactive "continue"`
 - OpenCode: `opencode --session <session-id> --prompt "continue"`
 
 This keeps the behavior aligned with each vendor CLI's supported session model instead of depending on terminal input injection hacks. Where supported, the app also opts into unattended approval modes so the resumed run can proceed without stopping for confirmation.
@@ -100,7 +106,7 @@ This keeps the behavior aligned with each vendor CLI's supported session model i
 | Hold `Option` / `Alt` + click resume | Session detail | Resume with YOLO / unattended approval flags when supported |
 | Hold `Option` / `Alt` + click new session | Project tree | Start a new session with YOLO / unattended approval flags when supported |
 
-OpenCode currently ignores YOLO mode because its CLI does not expose an unattended approval flag yet.
+OpenCode currently ignores YOLO mode because its CLI does not expose an unattended approval flag yet. Antigravity CLI uses `agy --dangerously-skip-permissions` for YOLO mode and `agy --conversation <conversation-id>` for normal resume.
 
 ## Tech Stack
 
@@ -219,13 +225,16 @@ aicoder-session-viewer/
 │  │  │Claude │ │ Codex │   │   → SessionSummary         │
 │  │  └───────┘ └───────┘   │   → Session                │
 │  │  ┌───────┐ ┌────────┐  │   → Message                │
-│  │  │Gemini │ │OpenCode│  │   → ContentBlock           │
+│  │  │Gemini │ │  AGY   │  │   → ContentBlock           │
 │  │  └───────┘ └────────┘  │                            │
+│  │  ┌────────┐            │                            │
+│  │  │OpenCode│            │                            │
+│  │  └────────┘            │                            │
 │  └─────────────────────────┘                            │
 └─────────────────────────────────────────────────────────┘
 ```
 
-All four data sources implement the `SessionProvider` trait and are normalized into a unified model before being sent to the frontend. If a provider is unavailable (e.g., directory doesn't exist), it is silently skipped without affecting others.
+All data sources implement the `SessionProvider` trait and are normalized into a unified model before being sent to the frontend. If a provider is unavailable (e.g., directory doesn't exist), it is silently skipped without affecting others.
 
 ## License
 

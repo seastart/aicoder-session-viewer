@@ -565,6 +565,8 @@ function toolSlug(tool: ToolKind): string {
       return "codex";
     case "gemini":
       return "gemini";
+    case "antigravity":
+      return "antigravity";
     case "open_code":
       return "opencode";
   }

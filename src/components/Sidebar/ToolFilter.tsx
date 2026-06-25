@@ -4,14 +4,21 @@ import type { ToolKind } from "../../types";
 import { TOOL_CONFIG } from "../../types";
 import { useLocale } from "../../i18n";
 
-const TOOLS: (ToolKind | null)[] = [null, "claude_code", "codex", "gemini", "open_code"];
+const TOOLS: (ToolKind | null)[] = [
+  null,
+  "claude_code",
+  "codex",
+  "antigravity",
+  "open_code",
+  "gemini",
+];
 
 export function ToolFilter() {
   const { toolFilter, setToolFilter } = useSessionStore();
   const { t } = useLocale();
 
   return (
-    <div className="flex gap-1 px-3 py-2">
+    <div className="flex gap-1 overflow-x-auto px-3 py-2">
       {TOOLS.map((tool) => {
         const isActive = toolFilter === tool;
         const config = tool ? TOOL_CONFIG[tool] : null;
@@ -21,7 +28,7 @@ export function ToolFilter() {
             key={tool ?? "all"}
             onClick={() => setToolFilter(tool)}
             className={clsx(
-              "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+              "shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium transition-colors",
               isActive
                 ? "bg-accent text-surface"
                 : "text-text-secondary hover:bg-surface-hover"

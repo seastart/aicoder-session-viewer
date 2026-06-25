@@ -1,5 +1,5 @@
 /** AI 编码工具类型（对应 Rust ToolKind） */
-export type ToolKind = "claude_code" | "codex" | "gemini" | "open_code";
+export type ToolKind = "claude_code" | "codex" | "gemini" | "antigravity" | "open_code";
 
 /** Session 摘要，侧边栏列表使用 */
 export interface SessionSummary {
@@ -59,8 +59,9 @@ export const TOOL_CONFIG: Record<
 > = {
   claude_code: { label: "Claude Code", color: "#d4a574", bgColor: "#3d2e1f" },
   codex: { label: "Codex", color: "#7ec8e3", bgColor: "#1f2d3d" },
-  gemini: { label: "Gemini", color: "#8b9cf7", bgColor: "#252547" },
+  antigravity: { label: "Antigravity", color: "#f28b82", bgColor: "#3d2426" },
   open_code: { label: "OpenCode", color: "#a6e3a1", bgColor: "#1f3d2e" },
+  gemini: { label: "Gemini", color: "#8b9cf7", bgColor: "#252547" },
 };
 
 /** 各 provider 的可选路径覆盖；null = 走 provider 内置默认 */
@@ -68,6 +69,7 @@ export interface ProviderPaths {
   claudeCode: string | null;
   codex: string | null;
   gemini: string | null;
+  antigravity: string | null;
   opencode: string | null;
 }
 

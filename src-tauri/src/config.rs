@@ -12,13 +12,14 @@ pub struct ProviderConfig {
     pub provider_paths: ProviderPaths,
 }
 
-/// 四个 provider 的可选路径覆盖；None = 走 provider 内置默认
+/// 各 provider 的可选路径覆盖；None = 走 provider 内置默认
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProviderPaths {
     pub claude_code: Option<PathBuf>,
     pub codex: Option<PathBuf>,
     pub gemini: Option<PathBuf>,
+    pub antigravity: Option<PathBuf>,
     pub opencode: Option<PathBuf>,
 }
 

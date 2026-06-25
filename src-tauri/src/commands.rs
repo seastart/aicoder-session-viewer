@@ -7,7 +7,7 @@ use tauri::{AppHandle, State};
 use crate::config::{self, ProviderConfig, ProviderPaths};
 use crate::error::{AppError, AppResult};
 use crate::models::{Message, Session, SessionSummary, ToolKind};
-use crate::providers::{claude, codex, gemini, opencode, ProviderRegistry};
+use crate::providers::{antigravity, claude, codex, gemini, opencode, ProviderRegistry};
 
 /// 列出所有工具的 session
 #[tauri::command]
@@ -335,6 +335,19 @@ fn build_resume_command(
             }
             command
         }
+        ToolKind::Antigravity => {
+            let mut command = String::from("agy");
+            if launch_mode.needs_unattended_permissions() {
+                command.push_str(" --dangerously-skip-permissions");
+            }
+            command.push_str(" --conversation ");
+            command.push_str(&shell_escape(session_id));
+            if let Some(prompt) = prompt {
+                command.push_str(" --prompt-interactive ");
+                command.push_str(&shell_escape(prompt));
+            }
+            command
+        }
         // TODO(opencode-yolo): OpenCode CLI 暂无 bypass-approvals 开关，
         // 待上游加入后，需要在这里同时根据 `launch_mode.needs_unattended_permissions()` 拼接。
         ToolKind::OpenCode => {
@@ -377,6 +390,13 @@ fn build_new_session_command(tool_kind: ToolKind, bypass_permissions: bool) -> S
                 format!("gemini --approval-mode {}", shell_escape("yolo"))
             } else {
                 "gemini".to_string()
+            }
+        }
+        ToolKind::Antigravity => {
+            if bypass_permissions {
+                "agy --dangerously-skip-permissions".to_string()
+            } else {
+                "agy".to_string()
             }
         }
         // TODO(opencode-yolo): OpenCode CLI 暂无 bypass-approvals 开关，
@@ -746,6 +766,7 @@ pub fn get_provider_config(app: AppHandle) -> AppResult<ProviderConfigResponse> 
         claude_code: claude::ClaudeCodeProvider::default_path().ok(),
         codex: codex::CodexProvider::default_path().ok(),
         gemini: gemini::GeminiProvider::default_path().ok(),
+        antigravity: antigravity::AntigravityProvider::default_path().ok(),
         opencode: opencode::OpenCodeProvider::default_path().ok(),
     };
     Ok(ProviderConfigResponse {
@@ -802,6 +823,56 @@ mod tests {
         assert!(
             !command.contains("sleep 300"),
             "定时恢复不应生成一次性长 sleep"
+        );
+    }
+
+    #[test]
+    fn antigravity_new_session_command_uses_agy_flags() {
+        assert_eq!(
+            build_new_session_command(ToolKind::Antigravity, false),
+            "agy"
+        );
+        assert_eq!(
+            build_new_session_command(ToolKind::Antigravity, true),
+            "agy --dangerously-skip-permissions"
+        );
+    }
+
+    #[test]
+    fn antigravity_resume_command_uses_conversation_and_prompt_interactive() {
+        assert_eq!(
+            build_resume_command(
+                ToolKind::Antigravity,
+                "conv-1",
+                None,
+                ResumeLaunchMode::Interactive {
+                    bypass_permissions: false
+                },
+            )
+            .unwrap(),
+            "agy --conversation conv-1"
+        );
+        assert_eq!(
+            build_resume_command(
+                ToolKind::Antigravity,
+                "conv-1",
+                None,
+                ResumeLaunchMode::Interactive {
+                    bypass_permissions: true
+                },
+            )
+            .unwrap(),
+            "agy --dangerously-skip-permissions --conversation conv-1"
+        );
+        assert_eq!(
+            build_resume_command(
+                ToolKind::Antigravity,
+                "conv-1",
+                Some("continue"),
+                ResumeLaunchMode::ScheduledAutoContinue,
+            )
+            .unwrap(),
+            "agy --dangerously-skip-permissions --conversation conv-1 --prompt-interactive continue"
         );
     }
 }

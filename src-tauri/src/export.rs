@@ -132,6 +132,7 @@ fn tool_label(tool: crate::models::ToolKind) -> &'static str {
         crate::models::ToolKind::ClaudeCode => "Claude Code",
         crate::models::ToolKind::Codex => "Codex",
         crate::models::ToolKind::Gemini => "Gemini",
+        crate::models::ToolKind::Antigravity => "Antigravity",
         crate::models::ToolKind::OpenCode => "OpenCode",
     }
 }

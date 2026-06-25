@@ -1,6 +1,6 @@
 [package]
 name = "aicoder-session-viewer"
-version = "0.1.13"
+version = "0.1.14"
 description = "Unified AI coding assistant session viewer"
 authors = ["you"]
 edition = "2021"
