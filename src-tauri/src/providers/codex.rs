@@ -16,9 +16,15 @@ use crate::providers::{search, SessionProvider};
 ///
 /// JSONL 每行顶层结构: { timestamp, type, payload }
 /// - type = "session_meta"  → payload 含 id, cwd 等元信息
-/// - type = "event_msg"     → payload.type 区分 user_message / task_started 等
-/// - type = "response_item" → payload.type 区分 message / function_call / function_call_output
+/// - type = "event_msg"     → payload.type 区分 user_message / item_completed / task_started 等
+/// - type = "response_item" → payload.type 区分 message / function_call / custom_tool_call 等
 /// - type = "turn_context"  → 包含 model、cwd 等上下文，可提取 project_path
+///
+/// 版本差异（Codex CLI）：
+/// - ≤0.146：用户输入记录在 `event_msg.user_message`
+/// - ≥0.147：`user_message` 事件被移除，用户输入改由
+///   `event_msg.item_completed` 中 `item.type == "UserMessage"` 承载；
+///   `response_item(role=user)` 里虽也有文本，但混杂 AGENTS.md/环境上下文注入，不可直接采用
 pub struct CodexProvider {
     base_dir: PathBuf,
 }
@@ -111,6 +117,8 @@ impl CodexProvider {
         let mut project_path: Option<String> = None;
         let mut msg_count = 0;
         let mut total_tokens: Option<u64> = None;
+        // 用户消息来源（新旧格式互斥，锁定先出现的那一种，避免重复计数）
+        let mut user_src = UserMsgSource::Unknown;
 
         for line in reader.lines() {
             let line = match line {
@@ -154,13 +162,35 @@ impl CodexProvider {
                 "event_msg" => {
                     let payload_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
                     match payload_type {
+                        // Codex ≤0.146 的用户消息事件
                         "user_message" => {
+                            if !user_src.accept(UserMsgSource::Legacy) {
+                                continue;
+                            }
                             msg_count += 1;
                             if title.is_none() {
                                 if let Some(msg) =
                                     payload.get("message").and_then(|m| m.as_str())
                                 {
                                     title = Some(truncate_title(msg, 80));
+                                }
+                            }
+                        }
+                        // Codex ≥0.147 的统一事件流，只取其中的 UserMessage
+                        "item_completed" => {
+                            let item = payload.get("item");
+                            let is_user_msg = item
+                                .and_then(|i| i.get("type"))
+                                .and_then(|t| t.as_str())
+                                .is_some_and(|t| t == "UserMessage");
+                            if !is_user_msg || !user_src.accept(UserMsgSource::ItemCompleted) {
+                                continue;
+                            }
+                            msg_count += 1;
+                            if title.is_none() {
+                                let text = item.map(collect_item_text).unwrap_or_default();
+                                if !text.is_empty() {
+                                    title = Some(truncate_title(&text, 80));
                                 }
                             }
                         }
@@ -183,10 +213,7 @@ impl CodexProvider {
                 "response_item" => {
                     let payload_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
                     let role = payload.get("role").and_then(|r| r.as_str()).unwrap_or("");
-                    if role == "assistant"
-                        || payload_type == "function_call"
-                        || payload_type == "function_call_output"
-                    {
+                    if role == "assistant" || is_tool_item(payload_type) {
                         msg_count += 1;
                     }
                 }
@@ -211,6 +238,8 @@ impl CodexProvider {
         // 紧跟其后的 event_msg.user_message 才是真正展示的用户消息（含 [Image #N] 占位文本）。
         // 此处先把图片暂存，待 user_message 到达时一并附加到消息内容里。
         let mut pending_user_images: Vec<ContentBlock> = Vec::new();
+        // 用户消息来源（新旧格式互斥，锁定先出现的那一种，避免同一条消息出现两次）
+        let mut user_src = UserMsgSource::Unknown;
 
         for line in content.lines() {
             let line = line.trim();
@@ -245,37 +274,48 @@ impl CodexProvider {
                     let payload_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
                     match payload_type {
+                        // Codex ≤0.146 的用户消息事件
                         "user_message" => {
+                            if !user_src.accept(UserMsgSource::Legacy) {
+                                continue;
+                            }
                             let text = payload
                                 .get("message")
                                 .and_then(|m| m.as_str())
                                 .unwrap_or("")
                                 .to_string();
 
-                            // 用第一条用户消息作为标题
-                            if title.is_none() && !text.is_empty() {
-                                title = Some(truncate_title(&text, 80));
+                            push_user_message(
+                                &mut messages,
+                                &mut msg_index,
+                                &mut title,
+                                &mut pending_user_images,
+                                text,
+                                timestamp,
+                            );
+                        }
+
+                        // Codex ≥0.147 的统一事件流：用户输入改由 item.type == "UserMessage" 承载
+                        // （其余 AgentMessage / CommandExecution 等都是 response_item 的重复投影，跳过）
+                        "item_completed" => {
+                            let item = payload.get("item");
+                            let is_user_msg = item
+                                .and_then(|i| i.get("type"))
+                                .and_then(|t| t.as_str())
+                                .is_some_and(|t| t == "UserMessage");
+                            if !is_user_msg || !user_src.accept(UserMsgSource::ItemCompleted) {
+                                continue;
                             }
 
-                            // 文本与图片任一存在即生成消息；图片来自前面 response_item 的缓冲
-                            let has_text = !text.is_empty();
-                            let has_images = !pending_user_images.is_empty();
-                            if has_text || has_images {
-                                let mut blocks: Vec<ContentBlock> = Vec::new();
-                                if has_text {
-                                    blocks.push(ContentBlock::Text { text });
-                                }
-                                blocks.append(&mut pending_user_images);
-                                messages.push(Message {
-                                    id: format!("codex-{}", msg_index),
-                                    role: Role::User,
-                                    content: blocks,
-                                    timestamp,
-                                    model: None,
-                                    usage: None,
-                                });
-                                msg_index += 1;
-                            }
+                            let text = item.map(collect_item_text).unwrap_or_default();
+                            push_user_message(
+                                &mut messages,
+                                &mut msg_index,
+                                &mut title,
+                                &mut pending_user_images,
+                                text,
+                                timestamp,
+                            );
                         }
 
                         // 错误消息（限流、服务异常等）→ 作为 System 消息展示
@@ -403,18 +443,70 @@ impl CodexProvider {
                             msg_index += 1;
                         }
 
-                        // 工具调用结果
-                        "function_call_output" => {
-                            let output = payload
-                                .get("output")
-                                .map(|o| {
-                                    if o.is_string() {
-                                        o.as_str().unwrap_or("").to_string()
-                                    } else {
-                                        serde_json::to_string_pretty(o).unwrap_or_default()
-                                    }
-                                })
-                                .unwrap_or_default();
+                        // 自定义工具调用（exec / apply_patch 等）：input 是原始字符串
+                        // （JS 代码、patch 文本），不是 JSON，原样保留交给前端展示
+                        "custom_tool_call" => {
+                            let tool_name = payload
+                                .get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+
+                            let input = payload
+                                .get("input")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+
+                            let tool_id = payload
+                                .get("call_id")
+                                .and_then(|i| i.as_str())
+                                .map(|s| s.to_string());
+
+                            messages.push(Message {
+                                id: format!("codex-{}", msg_index),
+                                role: Role::Assistant,
+                                content: vec![ContentBlock::ToolUse {
+                                    tool_name,
+                                    tool_id,
+                                    input,
+                                    agent_id: None,
+                                }],
+                                timestamp,
+                                model: None,
+                                usage: None,
+                            });
+                            msg_index += 1;
+                        }
+
+                        // 联网搜索：action 里含 query/queries，作为工具调用参数展示
+                        "web_search_call" => {
+                            let input = payload
+                                .get("action")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+
+                            messages.push(Message {
+                                id: format!("codex-{}", msg_index),
+                                role: Role::Assistant,
+                                content: vec![ContentBlock::ToolUse {
+                                    tool_name: "web_search".to_string(),
+                                    tool_id: payload
+                                        .get("id")
+                                        .and_then(|i| i.as_str())
+                                        .map(|s| s.to_string()),
+                                    input,
+                                    agent_id: None,
+                                }],
+                                timestamp,
+                                model: None,
+                                usage: None,
+                            });
+                            msg_index += 1;
+                        }
+
+                        // 工具调用结果（两种 output 形态统一由 extract_tool_output 处理）
+                        "function_call_output" | "custom_tool_call_output" => {
+                            let output = Self::extract_tool_output(payload);
 
                             let tool_id = payload
                                 .get("call_id")
@@ -446,6 +538,34 @@ impl CodexProvider {
         }
 
         Ok((messages, title, project_path))
+    }
+
+    /// 提取工具调用结果文本
+    ///
+    /// `output` 有两种形态：
+    /// - ≤0.146：直接是字符串
+    /// - ≥0.147：`[{type: "input_text", text: "..."}, ...]` 分段数组，需拼接
+    fn extract_tool_output(payload: &serde_json::Value) -> String {
+        let Some(output) = payload.get("output") else {
+            return String::new();
+        };
+
+        if let Some(s) = output.as_str() {
+            return s.to_string();
+        }
+
+        if let Some(arr) = output.as_array() {
+            let parts: Vec<&str> = arr
+                .iter()
+                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                .collect();
+            // 分段本身已自带换行，直接拼接即可还原原始输出
+            if !parts.is_empty() {
+                return parts.concat();
+            }
+        }
+
+        serde_json::to_string_pretty(output).unwrap_or_default()
     }
 
     /// 从用户 response_item 的 content 数组中提取图片块
@@ -649,6 +769,95 @@ impl CodexProvider {
     }
 }
 
+/// 用户消息的记录来源
+///
+/// Codex ≤0.146 用 `event_msg.user_message`，≥0.147 改用 `event_msg.item_completed`
+/// 中的 `UserMessage`。同一文件只会用其中一种；这里锁定先出现的那一种，
+/// 万一将来两者并存也不会把同一条用户消息解析两次。
+#[derive(PartialEq, Clone, Copy)]
+enum UserMsgSource {
+    Unknown,
+    /// ≤0.146: event_msg.user_message
+    Legacy,
+    /// ≥0.147: event_msg.item_completed → item.type == "UserMessage"
+    ItemCompleted,
+}
+
+impl UserMsgSource {
+    /// 判断本条事件是否应被采纳；首次调用时锁定来源
+    fn accept(&mut self, candidate: UserMsgSource) -> bool {
+        if *self == UserMsgSource::Unknown {
+            *self = candidate;
+        }
+        *self == candidate
+    }
+}
+
+/// 判断 response_item 的 payload.type 是否为工具调用/结果（计入消息数）
+fn is_tool_item(payload_type: &str) -> bool {
+    matches!(
+        payload_type,
+        "function_call"
+            | "function_call_output"
+            | "custom_tool_call"
+            | "custom_tool_call_output"
+            | "web_search_call"
+    )
+}
+
+/// 拼接 item_completed 里 item.content 数组的文本
+///
+/// 结构为 `[{type: "text", text: "..."}, ...]`
+fn collect_item_text(item: &serde_json::Value) -> String {
+    let Some(arr) = item.get("content").and_then(|c| c.as_array()) else {
+        return String::new();
+    };
+    arr.iter()
+        .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+        .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 生成一条用户消息：文本 + 之前缓冲的图片；顺带用首条消息填充标题
+///
+/// 文本与图片任一存在即产出消息（纯图片消息也要展示）。
+fn push_user_message(
+    messages: &mut Vec<Message>,
+    msg_index: &mut usize,
+    title: &mut Option<String>,
+    pending_user_images: &mut Vec<ContentBlock>,
+    text: String,
+    timestamp: Option<DateTime<Utc>>,
+) {
+    // 用第一条用户消息作为标题
+    if title.is_none() && !text.is_empty() {
+        *title = Some(truncate_title(&text, 80));
+    }
+
+    let has_text = !text.is_empty();
+    let has_images = !pending_user_images.is_empty();
+    if !has_text && !has_images {
+        return;
+    }
+
+    let mut blocks: Vec<ContentBlock> = Vec::new();
+    if has_text {
+        blocks.push(ContentBlock::Text { text });
+    }
+    blocks.append(pending_user_images);
+
+    messages.push(Message {
+        id: format!("codex-{}", msg_index),
+        role: Role::User,
+        content: blocks,
+        timestamp,
+        model: None,
+        usage: None,
+    });
+    *msg_index += 1;
+}
+
 /// 截取标题，按字符边界截断，避免中间截断多字节字符
 fn truncate_title(s: &str, max_chars: usize) -> String {
     // 去除换行，只取第一行
@@ -787,5 +996,92 @@ mod tests {
     fn new_with_nonexistent_path_fails() {
         let bogus = std::path::PathBuf::from("/nonexistent/path/xyz123");
         assert!(CodexProvider::new(Some(bogus)).is_err());
+    }
+
+    /// 把 JSONL 内容写入临时文件并解析
+    fn parse_fixture(name: &str, jsonl: &str) -> (Vec<Message>, Option<String>) {
+        let dir = std::env::temp_dir();
+        let path = dir.join(name);
+        fs::write(&path, jsonl).unwrap();
+        let provider = CodexProvider::new(Some(dir)).unwrap();
+        let (messages, title, _) = provider.parse_session_file(&path).unwrap();
+        fs::remove_file(&path).ok();
+        (messages, title)
+    }
+
+    /// Codex ≥0.147：用户输入来自 event_msg.item_completed / item.type = UserMessage，
+    /// 工具调用来自 custom_tool_call，工具输出为分段数组
+    #[test]
+    fn parses_user_message_from_item_completed() {
+        let jsonl = r##"
+{"timestamp":"2026-08-18T02:44:22.916Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions\n<INSTRUCTIONS>ignored</INSTRUCTIONS>"}]}}
+{"timestamp":"2026-08-18T02:44:22.948Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"你好，帮我看下这个 bug"}]}}}
+{"timestamp":"2026-08-18T02:44:27.671Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"好的"}]}}
+{"timestamp":"2026-08-18T02:44:29.871Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call_1","name":"exec","input":"const r = await tools.exec_command({cmd:\"ls\"});"}}
+{"timestamp":"2026-08-18T02:44:30.560Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_1","output":[{"type":"input_text","text":"Script completed\n"},{"type":"input_text","text":"a.txt\n"}]}}
+{"timestamp":"2026-08-18T02:44:31.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","content":[{"type":"text","text":"不应重复计入"}]}}}
+"##;
+        let (messages, title) = parse_fixture("codex-test-new.jsonl", jsonl);
+
+        // 用户消息只出现一次，且取自 item_completed（不含 AGENTS.md 注入）
+        let users: Vec<_> = messages.iter().filter(|m| m.role == Role::User).collect();
+        assert_eq!(users.len(), 1);
+        assert!(matches!(
+            &users[0].content[0],
+            ContentBlock::Text { text } if text == "你好，帮我看下这个 bug"
+        ));
+        assert_eq!(title.as_deref(), Some("你好，帮我看下这个 bug"));
+
+        // custom_tool_call 的原始字符串 input 原样保留
+        let tool_use = messages
+            .iter()
+            .flat_map(|m| &m.content)
+            .find_map(|b| match b {
+                ContentBlock::ToolUse { tool_name, input, .. } => Some((tool_name, input)),
+                _ => None,
+            })
+            .expect("custom_tool_call 应解析为 ToolUse");
+        assert_eq!(tool_use.0, "exec");
+        assert!(tool_use.1.as_str().unwrap().contains("exec_command"));
+
+        // 分段数组输出被拼接还原
+        let result = messages
+            .iter()
+            .flat_map(|m| &m.content)
+            .find_map(|b| match b {
+                ContentBlock::ToolResult { content, .. } => Some(content.clone()),
+                _ => None,
+            })
+            .expect("custom_tool_call_output 应解析为 ToolResult");
+        assert_eq!(result, "Script completed\na.txt\n");
+    }
+
+    /// Codex ≤0.146：用户输入来自 event_msg.user_message，工具输出为字符串
+    #[test]
+    fn parses_user_message_from_legacy_event() {
+        let jsonl = r##"
+{"timestamp":"2026-08-01T00:42:49.000Z","type":"event_msg","payload":{"type":"user_message","message":"旧格式的提问"}}
+{"timestamp":"2026-08-01T00:42:50.000Z","type":"response_item","payload":{"type":"function_call","call_id":"call_2","name":"shell","arguments":"{\"cmd\":\"ls\"}"}}
+{"timestamp":"2026-08-01T00:42:51.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_2","output":"a.txt\n"}}
+"##;
+        let (messages, title) = parse_fixture("codex-test-legacy.jsonl", jsonl);
+
+        let users: Vec<_> = messages.iter().filter(|m| m.role == Role::User).collect();
+        assert_eq!(users.len(), 1);
+        assert!(matches!(
+            &users[0].content[0],
+            ContentBlock::Text { text } if text == "旧格式的提问"
+        ));
+        assert_eq!(title.as_deref(), Some("旧格式的提问"));
+
+        let result = messages
+            .iter()
+            .flat_map(|m| &m.content)
+            .find_map(|b| match b {
+                ContentBlock::ToolResult { content, .. } => Some(content.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(result, "a.txt\n");
     }
 }

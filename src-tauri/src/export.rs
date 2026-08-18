@@ -95,9 +95,8 @@ fn render_block(md: &mut String, block: &ContentBlock) {
             tool_name, input, ..
         } => {
             md.push_str(&format!("**Tool Call:** `{}`\n\n", tool_name));
-            if let Ok(pretty) = serde_json::to_string_pretty(input) {
-                md.push_str(&format!("```json\n{}\n```\n\n", pretty));
-            }
+            let (lang, body) = format_tool_input(input);
+            md.push_str(&format!("```{}\n{}\n```\n\n", lang, body));
         }
         ContentBlock::ToolResult {
             content, is_error, ..
@@ -123,6 +122,21 @@ fn render_block(md: &mut String, block: &ContentBlock) {
                 md.push_str(&format!("![Image]({})\n\n", source));
             }
         }
+    }
+}
+
+/// 格式化工具调用参数，返回 (代码块语言, 正文)
+///
+/// 参数通常是 JSON 对象，但 Codex 的 custom_tool_call 直接给一段原始字符串
+/// （JS 代码、apply_patch 补丁），此时按 JSON 序列化会变成满是 `\n` 的单行，
+/// 因此字符串一律原样输出。
+fn format_tool_input(input: &serde_json::Value) -> (&'static str, String) {
+    match input.as_str() {
+        Some(s) => ("", s.to_string()),
+        None => (
+            "json",
+            serde_json::to_string_pretty(input).unwrap_or_default(),
+        ),
     }
 }
 
@@ -443,9 +457,8 @@ fn render_block_html(
                 "<summary>Tool · {}</summary>\n",
                 html_escape(tool_name)
             ));
-            if let Ok(pretty) = serde_json::to_string_pretty(input) {
-                html.push_str(&format!("<pre><code>{}</code></pre>\n", html_escape(&pretty)));
-            }
+            let (_, body) = format_tool_input(input);
+            html.push_str(&format!("<pre><code>{}</code></pre>\n", html_escape(&body)));
             if let Some(id) = tool_id {
                 if let Some((content, is_error)) = result_map.get(id) {
                     let label = if *is_error { "结果（错误）" } else { "结果" };
